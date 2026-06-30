@@ -103,7 +103,11 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                 val symbolTokens = repo.getTokensForSymbols(symbols)
                 if (symbolTokens.isEmpty()) {
                     // Try refreshing instruments
-                    repo.refreshInstruments()
+                    val refreshResult = repo.refreshInstruments()
+                    refreshResult.onFailure { e ->
+                        updateState { copy(isDownloading = false, error = "Could not load instrument list: ${e.message}") }
+                    }
+                    if (refreshResult.isFailure) return@launch
                     tokenMap.putAll(repo.getTokensForSymbols(symbols))
                 } else {
                     tokenMap.putAll(symbolTokens)

@@ -15,6 +15,7 @@ data class AuthState(
     val isLoggedIn: Boolean = false,
     val userName: String = "",
     val isLoading: Boolean = false,
+    val isRefreshingInstruments: Boolean = false,
     val error: String? = null,
     val successMessage: String? = null
 )
@@ -53,15 +54,35 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                         isLoading = false,
                         isLoggedIn = true,
                         userName = session.user_name,
-                        successMessage = "Logged in as ${session.user_name}"
+                        successMessage = "Logged in as ${session.user_name}. Loading instrument list..."
                     )
-                    // Trigger instrument refresh
-                    repo.refreshInstruments()
+                    refreshInstruments()
                 },
                 onFailure = { e ->
                     _state.value = _state.value.copy(
                         isLoading = false,
                         error = e.message ?: "Login failed"
+                    )
+                }
+            )
+        }
+    }
+
+    fun refreshInstruments() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isRefreshingInstruments = true, error = null)
+            val result = repo.refreshInstruments()
+            result.fold(
+                onSuccess = { count ->
+                    _state.value = _state.value.copy(
+                        isRefreshingInstruments = false,
+                        successMessage = "✅ Logged in as ${_state.value.userName}. Loaded $count instruments."
+                    )
+                },
+                onFailure = { e ->
+                    _state.value = _state.value.copy(
+                        isRefreshingInstruments = false,
+                        error = "Instrument list failed to load: ${e.message}"
                     )
                 }
             )

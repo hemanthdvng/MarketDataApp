@@ -114,6 +114,23 @@ fun AuthScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("REFRESH TOKEN")
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            Button(
+                onClick = { viewModel.refreshInstruments() },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                enabled = !state.isRefreshingInstruments
+            ) {
+                if (state.isRefreshingInstruments) {
+                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp))
+                } else {
+                    Icon(Icons.Default.Sync, contentDescription = null, tint = Color.Black)
+                    Spacer(Modifier.width(8.dp))
+                    Text("REFRESH INSTRUMENT LIST", color = Color.Black)
+                }
+            }
         }
 
         Spacer(Modifier.height(8.dp))

@@ -52,7 +52,11 @@ class KiteRepository(private val context: Context) {
 
     suspend fun refreshInstruments(): Result<Int> {
         return try {
-            val client = OkHttpClient()
+            val client = OkHttpClient.Builder()
+                .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
             val req = Request.Builder()
                 .url("https://api.kite.trade/instruments/NSE")
                 .addHeader("X-Kite-Version", "3")
@@ -60,11 +64,14 @@ class KiteRepository(private val context: Context) {
                 .build()
 
             val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) return Result.failure(Exception("Failed to download instruments: ${resp.code}"))
+            if (!resp.isSuccessful) {
+                val errBody = resp.body?.string()?.take(300) ?: ""
+                return Result.failure(Exception("Failed to download instruments: HTTP ${resp.code} $errBody"))
+            }
 
             val csv = resp.body?.string() ?: return Result.failure(Exception("Empty instruments response"))
             val lines = csv.lines()
-            if (lines.size < 2) return Result.failure(Exception("Invalid instruments CSV"))
+            if (lines.size < 2) return Result.failure(Exception("Invalid instruments CSV (only ${lines.size} lines)"))
 
             val entities = mutableListOf<InstrumentEntity>()
             for (line in lines.drop(1)) { // skip header
@@ -198,7 +205,8 @@ class KiteRepository(private val context: Context) {
             }
             Result.success(quotes)
         } else {
-            Result.failure(Exception(response.body()?.toString() ?: "Failed to fetch quotes"))
+            val errBody = response.errorBody()?.string()?.take(300) ?: response.message()
+            Result.failure(Exception("Quote fetch failed: HTTP ${response.code()} $errBody"))
         }
     } catch (e: Exception) {
         Result.failure(e)

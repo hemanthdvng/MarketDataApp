@@ -151,7 +151,7 @@ Format numbers clearly. Use INR for prices.
                 })
             }
 
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=$apiKey"
 
             val request = Request.Builder()
                 .url(url)
