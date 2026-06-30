@@ -25,72 +25,76 @@ class KiteRepository(private val context: Context) {
 
     // ---- Auth ----
 
-    suspend fun createSession(requestToken: String): Result<SessionData> = try {
-        val checksum = Extensions.kiteChecksum(prefs.apiKey, requestToken, prefs.apiSecret)
-        val response = api.createSession(
-            apiKey = prefs.apiKey,
-            requestToken = requestToken,
-            checksum = checksum
-        )
-        if (response.isSuccessful && response.body()?.status == "success") {
-            val data = response.body()!!.data!!
-            prefs.accessToken = data.access_token
-            prefs.userId = data.user_id
-            prefs.userName = data.user_name
-            Result.success(data)
-        } else {
-            val msg = response.body()?.message ?: response.message()
-            Result.failure(Exception(msg))
+    suspend fun createSession(requestToken: String): Result<SessionData> {
+        return try {
+            val checksum = Extensions.kiteChecksum(prefs.apiKey, requestToken, prefs.apiSecret)
+            val response = api.createSession(
+                apiKey = prefs.apiKey,
+                requestToken = requestToken,
+                checksum = checksum
+            )
+            if (response.isSuccessful && response.body()?.status == "success") {
+                val data = response.body()!!.data!!
+                prefs.accessToken = data.access_token
+                prefs.userId = data.user_id
+                prefs.userName = data.user_name
+                Result.success(data)
+            } else {
+                val msg = response.body()?.message ?: response.message()
+                Result.failure(Exception(msg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
-    } catch (e: Exception) {
-        Result.failure(e)
     }
 
     // ---- Instruments ----
 
-    suspend fun refreshInstruments(): Result<Int> = try {
-        val client = OkHttpClient()
-        val req = Request.Builder()
-            .url("https://api.kite.trade/instruments/NSE")
-            .addHeader("X-Kite-Version", "3")
-            .addHeader("Authorization", authHeader())
-            .build()
+    suspend fun refreshInstruments(): Result<Int> {
+        return try {
+            val client = OkHttpClient()
+            val req = Request.Builder()
+                .url("https://api.kite.trade/instruments/NSE")
+                .addHeader("X-Kite-Version", "3")
+                .addHeader("Authorization", authHeader())
+                .build()
 
-        val resp = client.newCall(req).execute()
-        if (!resp.isSuccessful) return Result.failure(Exception("Failed to download instruments: ${resp.code}"))
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return Result.failure(Exception("Failed to download instruments: ${resp.code}"))
 
-        val csv = resp.body?.string() ?: return Result.failure(Exception("Empty instruments response"))
-        val lines = csv.lines()
-        if (lines.size < 2) return Result.failure(Exception("Invalid instruments CSV"))
+            val csv = resp.body?.string() ?: return Result.failure(Exception("Empty instruments response"))
+            val lines = csv.lines()
+            if (lines.size < 2) return Result.failure(Exception("Invalid instruments CSV"))
 
-        val entities = mutableListOf<InstrumentEntity>()
-        for (line in lines.drop(1)) { // skip header
-            if (line.isBlank()) continue
-            val cols = line.split(",")
-            if (cols.size < 12) continue
-            try {
-                entities.add(
-                    InstrumentEntity(
-                        instrumentToken = cols[0].trim().toLong(),
-                        exchangeToken = cols[1].trim().toLongOrNull() ?: 0L,
-                        tradingSymbol = cols[2].trim(),
-                        name = cols[3].trim(),
-                        instrumentType = cols[9].trim(),
-                        segment = cols[10].trim(),
-                        exchange = cols[11].trim(),
-                        lotSize = cols[8].trim().toIntOrNull() ?: 1,
-                        tickSize = cols[7].trim().toDoubleOrNull() ?: 0.05
+            val entities = mutableListOf<InstrumentEntity>()
+            for (line in lines.drop(1)) { // skip header
+                if (line.isBlank()) continue
+                val cols = line.split(",")
+                if (cols.size < 12) continue
+                try {
+                    entities.add(
+                        InstrumentEntity(
+                            instrumentToken = cols[0].trim().toLong(),
+                            exchangeToken = cols[1].trim().toLongOrNull() ?: 0L,
+                            tradingSymbol = cols[2].trim(),
+                            name = cols[3].trim(),
+                            instrumentType = cols[9].trim(),
+                            segment = cols[10].trim(),
+                            exchange = cols[11].trim(),
+                            lotSize = cols[8].trim().toIntOrNull() ?: 1,
+                            tickSize = cols[7].trim().toDoubleOrNull() ?: 0.05
+                        )
                     )
-                )
-            } catch (_: Exception) {}
-        }
+                } catch (_: Exception) {}
+            }
 
-        db.instrumentDao().deleteByExchange("NSE")
-        db.instrumentDao().insertAll(entities)
-        prefs.instrumentsLastUpdated = System.currentTimeMillis()
-        Result.success(entities.size)
-    } catch (e: Exception) {
-        Result.failure(e)
+            db.instrumentDao().deleteByExchange("NSE")
+            db.instrumentDao().insertAll(entities)
+            prefs.instrumentsLastUpdated = System.currentTimeMillis()
+            Result.success(entities.size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     suspend fun getTokenForSymbol(symbol: String): Long? {
