@@ -1,0 +1,248 @@
+package com.marketdata.app.ui.screens
+
+import android.app.Activity
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.marketdata.app.data.models.SelectionType
+import com.marketdata.app.ui.components.AppDatePickerDialog
+import com.marketdata.app.ui.theme.*
+import com.marketdata.app.util.Extensions
+import com.marketdata.app.util.NiftySymbols
+import com.marketdata.app.viewmodel.DownloadViewModel
+
+@Composable
+fun DownloadScreen(viewModel: DownloadViewModel) {
+    val state by viewModel.state.collectAsState()
+    var showFromDatePicker by remember { mutableStateOf(false) }
+    var showToDatePicker by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                viewModel.setFolder(uri, uri.lastPathSegment ?: "Selected")
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text("DOWNLOAD HISTORICAL DATA", style = MaterialTheme.typography.headlineMedium, color = AccentBlue)
+
+        // Selection Type
+        SectionHeader("SELECTION TYPE")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            SelectionChip("Single", state.selectionType == SelectionType.SINGLE) { viewModel.setSelectionType(SelectionType.SINGLE) }
+            SelectionChip("Multi", state.selectionType == SelectionType.MULTI) { viewModel.setSelectionType(SelectionType.MULTI) }
+            SelectionChip("Index", state.selectionType == SelectionType.INDEX) { viewModel.setSelectionType(SelectionType.INDEX) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            SelectionChip("Nifty 50", state.selectionType == SelectionType.NIFTY50) { viewModel.setSelectionType(SelectionType.NIFTY50) }
+            SelectionChip("Nifty 100", state.selectionType == SelectionType.NIFTY100) { viewModel.setSelectionType(SelectionType.NIFTY100) }
+        }
+
+        // Dynamic input based on selection
+        when (state.selectionType) {
+            SelectionType.SINGLE -> {
+                AppTextField(
+                    label = "Stock Symbol",
+                    value = state.singleSymbol,
+                    onValueChange = { viewModel.setSingleSymbol(it) },
+                    placeholder = "RELIANCE"
+                )
+            }
+            SelectionType.MULTI -> {
+                AppTextField(
+                    label = "Symbols (comma separated)",
+                    value = state.multiSymbols,
+                    onValueChange = { viewModel.setMultiSymbols(it) },
+                    placeholder = "RELIANCE,TCS,INFY"
+                )
+            }
+            SelectionType.INDEX -> {
+                Text("Select Index:", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(NiftySymbols.INDEX_TOKENS.keys.toList()) { idx ->
+                        SelectionChip(idx, state.selectedIndex == idx) { viewModel.setSelectedIndex(idx) }
+                    }
+                }
+            }
+            SelectionType.NIFTY50 -> {
+                InfoCard("📊 ${NiftySymbols.NIFTY_50.size} stocks will be downloaded (Nifty 50 constituents)")
+            }
+            SelectionType.NIFTY100 -> {
+                InfoCard("📊 ${NiftySymbols.NIFTY_100.size} stocks will be downloaded (Nifty 100 constituents)")
+            }
+        }
+
+        // Interval
+        SectionHeader("INTERVAL")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            itemsIndexed(NiftySymbols.INTERVALS) { idx, interval ->
+                SelectionChip(interval.first, state.selectedInterval == idx) { viewModel.setInterval(idx) }
+            }
+        }
+
+        // Date Range
+        SectionHeader("DATE RANGE")
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            DateBox("From", Extensions.formatDate(state.fromDate), Modifier.weight(1f)) { showFromDatePicker = true }
+            DateBox("To", Extensions.formatDate(state.toDate), Modifier.weight(1f)) { showToDatePicker = true }
+        }
+
+        // OI Toggle
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Checkbox(
+                checked = state.includeOI,
+                onCheckedChange = { viewModel.setIncludeOI(it) },
+                colors = CheckboxDefaults.colors(checkedColor = AccentBlue)
+            )
+            Text("Include Open Interest (OI) data", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+        }
+        Text("Note: OI only available for F&O instruments", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+
+        // Folder selection
+        SectionHeader("SAVE LOCATION")
+        OutlinedButton(
+            onClick = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                folderLauncher.launch(intent)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
+        ) {
+            Icon(Icons.Default.Folder, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (state.folderUri == null) "SELECT FOLDER" else "📁 ${state.folderName}")
+        }
+
+        // Download Button
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { viewModel.startDownload() },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+            enabled = !state.isDownloading
+        ) {
+            if (state.isDownloading) {
+                CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp))
+            } else {
+                Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black)
+                Spacer(Modifier.width(8.dp))
+                Text("DOWNLOAD CSV", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Progress
+        if (state.isDownloading) {
+            LinearProgressIndicator(
+                progress = { state.progress },
+                modifier = Modifier.fillMaxWidth(),
+                color = AccentBlue,
+                trackColor = DarkBorder
+            )
+            Text(state.progressText, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+        }
+
+        state.error?.let {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)), modifier = Modifier.fillMaxWidth()) {
+                Text(it, color = AccentRed, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        state.successMessage?.let {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF001A00)), modifier = Modifier.fillMaxWidth()) {
+                Text(it, color = AccentGreen, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        Spacer(Modifier.height(40.dp))
+    }
+
+    if (showFromDatePicker) {
+        AppDatePickerDialog(
+            initialDate = state.fromDate,
+            onDismiss = { showFromDatePicker = false },
+            onDateSelected = { viewModel.setFromDate(it) }
+        )
+    }
+    if (showToDatePicker) {
+        AppDatePickerDialog(
+            initialDate = state.toDate,
+            onDismiss = { showToDatePicker = false },
+            onDateSelected = { viewModel.setToDate(it) }
+        )
+    }
+}
+
+@Composable
+fun SelectionChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, style = MaterialTheme.typography.bodySmall) },
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = AccentBlue,
+            selectedLabelColor = Color.White,
+            containerColor = DarkCard,
+            labelColor = TextSecondary
+        )
+    )
+}
+
+@Composable
+fun DateBox(label: String, value: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Column(modifier = modifier) {
+        Text(label, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+                .background(DarkCard, RoundedCornerShape(8.dp))
+                .clickable(onClick = onClick)
+                .padding(12.dp)
+        ) {
+            Text(value, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+fun InfoCard(text: String) {
+    Card(colors = CardDefaults.cardColors(containerColor = DarkCard), modifier = Modifier.fillMaxWidth()) {
+        Text(text, color = TextSecondary, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+    }
+}

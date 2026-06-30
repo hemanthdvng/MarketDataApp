@@ -1,0 +1,201 @@
+package com.marketdata.app.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.marketdata.app.data.models.AgentMessage
+import com.marketdata.app.data.models.AiModel
+import com.marketdata.app.ui.theme.*
+import com.marketdata.app.viewmodel.AgentViewModel
+import kotlinx.coroutines.launch
+
+@Composable
+fun AgentScreen(viewModel: AgentViewModel) {
+    val state by viewModel.state.collectAsState()
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var showSettings by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.messages.size) {
+        if (state.messages.isNotEmpty()) {
+            scope.launch { listState.animateScrollToItem(state.messages.size - 1) }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp, 16.dp, 16.dp, 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("AI AGENT", style = MaterialTheme.typography.headlineMedium, color = AccentBlue)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { showSettings = !showSettings }) {
+                Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextSecondary)
+            }
+            IconButton(onClick = { viewModel.clearChat() }) {
+                Icon(Icons.Default.DeleteOutline, contentDescription = "Clear", tint = TextSecondary)
+            }
+        }
+
+        // Model selector
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SelectionChip("Claude", state.selectedModel == AiModel.CLAUDE) { viewModel.setModel(AiModel.CLAUDE) }
+            SelectionChip("Gemini", state.selectedModel == AiModel.GEMINI) { viewModel.setModel(AiModel.GEMINI) }
+            Spacer(Modifier.weight(1f))
+            if (state.fetchingQuotes) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = AccentAmber)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Live data...", color = AccentAmber, style = MaterialTheme.typography.bodySmall)
+                }
+            } else if (state.liveQuotes.isNotEmpty()) {
+                Text("📡 ${state.liveQuotes.size} symbols loaded", color = AccentGreen, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        if (showSettings) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp, 8.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkCard)
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Context symbols (for agent's live data):", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    AppTextField(
+                        label = "Symbols",
+                        value = state.symbolsForContext,
+                        onValueChange = { viewModel.setContextSymbols(it) },
+                        placeholder = "NIFTY 50,RELIANCE,TCS"
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = state.autoFetchQuotes,
+                            onCheckedChange = { viewModel.setAutoFetch(it) },
+                            colors = CheckboxDefaults.colors(checkedColor = AccentBlue)
+                        )
+                        Text("Auto-fetch live quotes for context", color = TextPrimary, style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(onClick = { viewModel.refreshQuotes() }) {
+                        Text("🔄 Refresh quotes now", color = AccentBlue, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+
+        Divider(color = DarkBorder, modifier = Modifier.padding(top = 8.dp))
+
+        // Messages
+        if (state.messages.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("🤖", style = MaterialTheme.typography.headlineLarge)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Ask me about stocks, trends, or recommendations", color = TextMuted,
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("e.g. \"Which Nifty 50 stocks look bullish today?\"", color = TextMuted,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                items(state.messages) { msg -> MessageBubble(msg) }
+                if (state.isLoading) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AccentBlue, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Analyzing...", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+
+        state.error?.let {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp, 0.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000))
+            ) {
+                Text(it, color = AccentRed, modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        // Input bar
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            OutlinedTextField(
+                value = state.inputText,
+                onValueChange = { viewModel.setInputText(it) },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Ask about stocks...", color = TextMuted) },
+                maxLines = 4,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentBlue,
+                    unfocusedBorderColor = DarkBorder,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary
+                )
+            )
+            Spacer(Modifier.width(8.dp))
+            IconButton(
+                onClick = { viewModel.sendMessage() },
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(AccentBlue, RoundedCornerShape(12.dp)),
+                enabled = !state.isLoading && state.inputText.isNotBlank()
+            ) {
+                Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun MessageBubble(msg: AgentMessage) {
+    val isUser = msg.role == "user"
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        Card(
+            modifier = Modifier.widthIn(max = 300.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isUser) AccentBlue.copy(alpha = 0.15f) else DarkCard
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                if (!isUser) {
+                    Text("🤖 AGENT", color = AccentBlue, style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                }
+                Text(msg.content, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}

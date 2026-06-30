@@ -1,0 +1,4 @@
+-keep class com.marketdata.app.data.models.** { *; }
+-keep class com.marketdata.app.data.db.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
