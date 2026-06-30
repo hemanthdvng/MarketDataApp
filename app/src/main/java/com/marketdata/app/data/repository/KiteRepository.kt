@@ -9,7 +9,9 @@ import com.marketdata.app.data.models.*
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Date
@@ -50,8 +52,8 @@ class KiteRepository(private val context: Context) {
 
     // ---- Instruments ----
 
-    suspend fun refreshInstruments(): Result<Int> {
-        return try {
+    suspend fun refreshInstruments(): Result<Int> = withContext(Dispatchers.IO) {
+        try {
             val client = OkHttpClient.Builder()
                 .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
@@ -66,12 +68,12 @@ class KiteRepository(private val context: Context) {
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) {
                 val errBody = resp.body?.string()?.take(300) ?: ""
-                return Result.failure(Exception("Failed to download instruments: HTTP ${resp.code} $errBody"))
+                return@withContext Result.failure(Exception("Failed to download instruments: HTTP ${resp.code} $errBody"))
             }
 
-            val csv = resp.body?.string() ?: return Result.failure(Exception("Empty instruments response"))
+            val csv = resp.body?.string() ?: return@withContext Result.failure(Exception("Empty instruments response"))
             val lines = csv.lines()
-            if (lines.size < 2) return Result.failure(Exception("Invalid instruments CSV (only ${lines.size} lines)"))
+            if (lines.size < 2) return@withContext Result.failure(Exception("Invalid instruments CSV (only ${lines.size} lines)"))
 
             val entities = mutableListOf<InstrumentEntity>()
             for (line in lines.drop(1)) { // skip header

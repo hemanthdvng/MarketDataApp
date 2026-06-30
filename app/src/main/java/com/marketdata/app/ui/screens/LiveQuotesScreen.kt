@@ -53,22 +53,31 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
         )
 
         Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { viewModel.fetchQuotes() },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+            enabled = !state.isLoading
+        ) {
+            if (state.isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp))
+            else { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("FETCH") }
+        }
+
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Button(
-                onClick = { viewModel.fetchQuotes() },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
-                enabled = !state.isLoading
-            ) {
-                if (state.isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp))
-                else { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("FETCH") }
-            }
             OutlinedButton(
                 onClick = { viewModel.loadNifty50() },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentAmber)
             ) {
                 Text("NIFTY 50")
+            }
+            OutlinedButton(
+                onClick = { viewModel.loadNifty100() },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentAmber)
+            ) {
+                Text("NIFTY 100")
             }
         }
 

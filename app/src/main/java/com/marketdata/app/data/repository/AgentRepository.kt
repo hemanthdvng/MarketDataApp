@@ -1,7 +1,8 @@
 package com.marketdata.app.data.repository
 
 import com.marketdata.app.data.models.AgentMessage
-import com.marketdata.app.data.models.AiModel
+import com.marketdata.app.data.models.AiModelOption
+import com.marketdata.app.data.models.AiProvider
 import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.prefs.SecurePrefs
 import okhttp3.*
@@ -61,6 +62,7 @@ Format numbers clearly. Use INR for prices.
     }
 
     suspend fun callClaude(
+        modelId: String,
         messages: List<AgentMessage>,
         liveQuotes: List<LiveQuoteDisplay>? = null,
         csvSummary: String? = null
@@ -80,7 +82,7 @@ Format numbers clearly. Use INR for prices.
             }
 
             val body = JSONObject().apply {
-                put("model", "claude-sonnet-4-6")
+                put("model", modelId)
                 put("max_tokens", 2048)
                 put("system", systemPrompt)
                 put("messages", messagesJson)
@@ -110,6 +112,7 @@ Format numbers clearly. Use INR for prices.
     }
 
     suspend fun callGemini(
+        modelId: String,
         messages: List<AgentMessage>,
         liveQuotes: List<LiveQuoteDisplay>? = null,
         csvSummary: String? = null
@@ -151,7 +154,7 @@ Format numbers clearly. Use INR for prices.
                 })
             }
 
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=$apiKey"
 
             val request = Request.Builder()
                 .url(url)
@@ -180,12 +183,12 @@ Format numbers clearly. Use INR for prices.
     }
 
     suspend fun call(
-        model: AiModel,
+        model: AiModelOption,
         messages: List<AgentMessage>,
         liveQuotes: List<LiveQuoteDisplay>? = null,
         csvSummary: String? = null
-    ): Result<String> = when (model) {
-        AiModel.CLAUDE -> callClaude(messages, liveQuotes, csvSummary)
-        AiModel.GEMINI -> callGemini(messages, liveQuotes, csvSummary)
+    ): Result<String> = when (model.provider) {
+        AiProvider.CLAUDE -> callClaude(model.id, messages, liveQuotes, csvSummary)
+        AiProvider.GEMINI -> callGemini(model.id, messages, liveQuotes, csvSummary)
     }
 }

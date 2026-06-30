@@ -21,7 +21,7 @@ import java.util.*
 data class DownloadState(
     val selectionType: SelectionType = SelectionType.SINGLE,
     val singleSymbol: String = "",
-    val multiSymbols: String = "",
+    val selectedMultiSymbols: List<String> = emptyList(),
     val selectedIndex: String = "NIFTY 50",
     val selectedInterval: Int = 7, // index into NiftySymbols.INTERVALS (day)
     val fromDate: Date = Calendar.getInstance().apply { add(Calendar.MONTH, -3) }.time,
@@ -46,9 +46,9 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(DownloadState())
     val state = _state.asStateFlow()
 
-    fun setSelectionType(type: SelectionType) = updateState { copy(selectionType = type) }
-    fun setSingleSymbol(s: String) = updateState { copy(singleSymbol = s.uppercase()) }
-    fun setMultiSymbols(s: String) = updateState { copy(multiSymbols = s.uppercase()) }
+    fun setSelectionType(type: SelectionType) = updateState {
+        copy(selectionType = type, symbolSearchQuery = "", symbolSearchResults = emptyList())
+    }
     fun setSelectedIndex(idx: String) = updateState { copy(selectedIndex = idx) }
     fun setInterval(i: Int) = updateState { copy(selectedInterval = i) }
     fun setFromDate(d: Date) = updateState { copy(fromDate = d) }
@@ -60,16 +60,50 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
         updateState { copy(folderUri = uri, folderName = displayName) }
     }
 
+    /** Search-as-you-type. Falls back to the static Nifty 100 list if the
+     *  instrument DB hasn't been loaded yet (e.g. before first login). */
     fun searchSymbols(query: String) {
-        updateState { copy(symbolSearchQuery = query) }
+        updateState { copy(symbolSearchQuery = query.uppercase()) }
         viewModelScope.launch {
-            if (query.length >= 2) {
-                val results = repo.searchSymbols(query)
-                updateState { copy(symbolSearchResults = results.map { it.tradingSymbol }) }
+            if (query.isNotBlank()) {
+                val q = query.uppercase()
+                val dbResults = try { repo.searchSymbols(q) } catch (e: Exception) { emptyList() }
+                val results = if (dbResults.isNotEmpty()) {
+                    dbResults.map { it.tradingSymbol }
+                } else {
+                    NiftySymbols.NIFTY_100.filter { it.contains(q) }
+                }
+                updateState { copy(symbolSearchResults = results.take(25)) }
             } else {
                 updateState { copy(symbolSearchResults = emptyList()) }
             }
         }
+    }
+
+    /** SINGLE mode: pick a symbol from the suggestion list */
+    fun selectSingleSymbol(symbol: String) {
+        updateState { copy(singleSymbol = symbol, symbolSearchQuery = "", symbolSearchResults = emptyList()) }
+    }
+
+    fun clearSingleSymbol() {
+        updateState { copy(singleSymbol = "", symbolSearchQuery = "") }
+    }
+
+    /** MULTI mode: add/remove from the selected chip list */
+    fun addMultiSymbol(symbol: String) {
+        updateState {
+            val updated = if (symbol in selectedMultiSymbols) selectedMultiSymbols
+                else selectedMultiSymbols + symbol
+            copy(selectedMultiSymbols = updated, symbolSearchQuery = "", symbolSearchResults = emptyList())
+        }
+    }
+
+    fun removeMultiSymbol(symbol: String) {
+        updateState { copy(selectedMultiSymbols = selectedMultiSymbols - symbol) }
+    }
+
+    fun clearMultiSymbols() {
+        updateState { copy(selectedMultiSymbols = emptyList()) }
     }
 
     fun startDownload() {
@@ -201,8 +235,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun getSymbols(s: DownloadState): List<String> = when (s.selectionType) {
         SelectionType.SINGLE -> if (s.singleSymbol.isNotBlank()) listOf(s.singleSymbol.trim()) else emptyList()
-        SelectionType.MULTI -> s.multiSymbols.split(",", " ", "\n")
-            .map { it.trim().uppercase() }.filter { it.isNotBlank() }
+        SelectionType.MULTI -> s.selectedMultiSymbols
         SelectionType.INDEX -> listOf(s.selectedIndex)
         SelectionType.NIFTY50 -> NiftySymbols.NIFTY_50
         SelectionType.NIFTY100 -> NiftySymbols.NIFTY_100

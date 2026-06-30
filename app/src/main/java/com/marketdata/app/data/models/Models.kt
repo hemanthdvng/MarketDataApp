@@ -80,4 +80,26 @@ data class LiveQuoteDisplay(
 )
 
 enum class SelectionType { SINGLE, MULTI, INDEX, NIFTY50, NIFTY100 }
-enum class AiModel { CLAUDE, GEMINI }
+enum class AiProvider { CLAUDE, GEMINI }
+
+data class AiModelOption(
+    val id: String,
+    val label: String,
+    val provider: AiProvider,
+    val note: String? = null
+)
+
+object AiModels {
+    val CLAUDE_OPTIONS = listOf(
+        AiModelOption("claude-sonnet-5", "Claude Sonnet 5", AiProvider.CLAUDE),
+        AiModelOption("claude-opus-4-8", "Claude Opus 4.8", AiProvider.CLAUDE, "Most capable, slower"),
+        AiModelOption("claude-haiku-4-5-20251001", "Claude Haiku 4.5", AiProvider.CLAUDE, "Fastest, cheapest")
+    )
+    val GEMINI_OPTIONS = listOf(
+        AiModelOption("gemini-3.5-flash", "Gemini 3.5 Flash", AiProvider.GEMINI),
+        AiModelOption("gemini-3.1-pro-preview", "Gemini 3.1 Pro", AiProvider.GEMINI, "Preview — needs billing enabled"),
+        AiModelOption("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", AiProvider.GEMINI, "Cheapest, high-volume")
+    )
+    val ALL = CLAUDE_OPTIONS + GEMINI_OPTIONS
+    val DEFAULT = GEMINI_OPTIONS[0]
+}

@@ -34,6 +34,11 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
         fetchQuotes()
     }
 
+    fun loadNifty100() {
+        update { copy(symbolInput = NiftySymbols.NIFTY_100.joinToString(","), showNifty50 = true) }
+        fetchQuotes()
+    }
+
     fun fetchQuotes() {
         val symbols = _state.value.symbolInput
             .split(",", " ", "\n")

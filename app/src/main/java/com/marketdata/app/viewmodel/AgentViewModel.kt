@@ -4,7 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.marketdata.app.data.models.AgentMessage
-import com.marketdata.app.data.models.AiModel
+import com.marketdata.app.data.models.AiModelOption
+import com.marketdata.app.data.models.AiModels
 import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.data.repository.AgentRepository
@@ -16,7 +17,7 @@ import kotlinx.coroutines.launch
 data class AgentState(
     val messages: List<AgentMessage> = emptyList(),
     val inputText: String = "",
-    val selectedModel: AiModel = AiModel.CLAUDE,
+    val selectedModel: AiModelOption = AiModels.DEFAULT,
     val isLoading: Boolean = false,
     val error: String? = null,
     val autoFetchQuotes: Boolean = true,
@@ -34,7 +35,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     val state = _state.asStateFlow()
 
     fun setInputText(t: String) = update { copy(inputText = t) }
-    fun setModel(m: AiModel) = update { copy(selectedModel = m) }
+    fun setModel(m: AiModelOption) = update { copy(selectedModel = m) }
     fun setAutoFetch(v: Boolean) = update { copy(autoFetchQuotes = v) }
     fun setContextSymbols(s: String) = update { copy(symbolsForContext = s.uppercase()) }
     fun clearError() = update { copy(error = null) }
@@ -43,6 +44,16 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     fun sendMessage() {
         val text = _state.value.inputText.trim()
         if (text.isEmpty()) return
+
+        val model = _state.value.selectedModel
+        val hasKey = when (model.provider) {
+            com.marketdata.app.data.models.AiProvider.CLAUDE -> prefs.claudeApiKey.isNotEmpty()
+            com.marketdata.app.data.models.AiProvider.GEMINI -> prefs.geminiApiKey.isNotEmpty()
+        }
+        if (!hasKey) {
+            update { copy(error = "No ${model.provider} API key set. Add it on the Login tab.") }
+            return
+        }
 
         val userMsg = AgentMessage(role = "user", content = text)
         update { copy(messages = messages + userMsg, inputText = "", isLoading = true, error = null) }

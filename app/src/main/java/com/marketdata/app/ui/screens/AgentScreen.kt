@@ -16,7 +16,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.AgentMessage
-import com.marketdata.app.data.models.AiModel
+import com.marketdata.app.data.models.AiModelOption
+import com.marketdata.app.data.models.AiModels
+import com.marketdata.app.data.models.AiProvider
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AgentViewModel
 import kotlinx.coroutines.launch
@@ -51,12 +53,43 @@ fun AgentScreen(viewModel: AgentViewModel) {
         }
 
         // Model selector
+        var modelMenuExpanded by remember { mutableStateOf(false) }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            SelectionChip("Claude", state.selectedModel == AiModel.CLAUDE) { viewModel.setModel(AiModel.CLAUDE) }
-            SelectionChip("Gemini", state.selectedModel == AiModel.GEMINI) { viewModel.setModel(AiModel.GEMINI) }
+            Box {
+                OutlinedButton(
+                    onClick = { modelMenuExpanded = true },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
+                ) {
+                    Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(state.selectedModel.label, style = MaterialTheme.typography.bodySmall)
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                }
+                DropdownMenu(
+                    expanded = modelMenuExpanded,
+                    onDismissRequest = { modelMenuExpanded = false },
+                    modifier = Modifier.background(DarkCard)
+                ) {
+                    Text("CLAUDE", color = TextMuted, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    AiModels.CLAUDE_OPTIONS.forEach { option ->
+                        ModelMenuItem(option, state.selectedModel.id == option.id) {
+                            viewModel.setModel(option); modelMenuExpanded = false
+                        }
+                    }
+                    Divider(color = DarkBorder)
+                    Text("GEMINI", color = TextMuted, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    AiModels.GEMINI_OPTIONS.forEach { option ->
+                        ModelMenuItem(option, state.selectedModel.id == option.id) {
+                            viewModel.setModel(option); modelMenuExpanded = false
+                        }
+                    }
+                }
+            }
             Spacer(Modifier.weight(1f))
             if (state.fetchingQuotes) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -65,8 +98,12 @@ fun AgentScreen(viewModel: AgentViewModel) {
                     Text("Live data...", color = AccentAmber, style = MaterialTheme.typography.bodySmall)
                 }
             } else if (state.liveQuotes.isNotEmpty()) {
-                Text("📡 ${state.liveQuotes.size} symbols loaded", color = AccentGreen, style = MaterialTheme.typography.bodySmall)
+                Text("📡 ${state.liveQuotes.size} symbols", color = AccentGreen, style = MaterialTheme.typography.bodySmall)
             }
+        }
+        state.selectedModel.note?.let {
+            Text("⚠ $it", color = AccentAmber, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp))
         }
 
         if (showSettings) {
@@ -172,6 +209,28 @@ fun AgentScreen(viewModel: AgentViewModel) {
             }
         }
     }
+}
+
+@Composable
+fun ModelMenuItem(option: AiModelOption, selected: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = {
+            Column {
+                Text(
+                    option.label,
+                    color = if (selected) AccentBlue else TextPrimary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                option.note?.let {
+                    Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        onClick = onClick,
+        trailingIcon = if (selected) {
+            { Icon(Icons.Default.Check, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(16.dp)) }
+        } else null
+    )
 }
 
 @Composable

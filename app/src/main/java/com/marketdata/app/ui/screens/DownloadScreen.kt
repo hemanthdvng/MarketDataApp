@@ -8,7 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -77,20 +80,65 @@ fun DownloadScreen(viewModel: DownloadViewModel) {
         // Dynamic input based on selection
         when (state.selectionType) {
             SelectionType.SINGLE -> {
-                AppTextField(
-                    label = "Stock Symbol",
-                    value = state.singleSymbol,
-                    onValueChange = { viewModel.setSingleSymbol(it) },
-                    placeholder = "RELIANCE"
-                )
+                if (state.singleSymbol.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = DarkCard),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                "✓ ${state.singleSymbol}",
+                                color = AccentGreen,
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(onClick = { viewModel.clearSingleSymbol() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = AccentRed)
+                        }
+                    }
+                } else {
+                    AppTextField(
+                        label = "Search stock symbol",
+                        value = state.symbolSearchQuery,
+                        onValueChange = { viewModel.searchSymbols(it) },
+                        placeholder = "Type to search e.g. RELIANCE"
+                    )
+                    SymbolSuggestionList(
+                        results = state.symbolSearchResults,
+                        onSelect = { viewModel.selectSingleSymbol(it) }
+                    )
+                }
             }
             SelectionType.MULTI -> {
                 AppTextField(
-                    label = "Symbols (comma separated)",
-                    value = state.multiSymbols,
-                    onValueChange = { viewModel.setMultiSymbols(it) },
-                    placeholder = "RELIANCE,TCS,INFY"
+                    label = "Search & add stocks",
+                    value = state.symbolSearchQuery,
+                    onValueChange = { viewModel.searchSymbols(it) },
+                    placeholder = "Type to search e.g. TCS, INFY..."
                 )
+                SymbolSuggestionList(
+                    results = state.symbolSearchResults,
+                    onSelect = { viewModel.addMultiSymbol(it) }
+                )
+                if (state.selectedMultiSymbols.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("${state.selectedMultiSymbols.size} selected", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { viewModel.clearMultiSymbols() }) {
+                            Text("Clear all", color = AccentRed, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    SymbolChipFlow(
+                        symbols = state.selectedMultiSymbols,
+                        onRemove = { viewModel.removeMultiSymbol(it) }
+                    )
+                }
             }
             SelectionType.INDEX -> {
                 Text("Select Index:", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
@@ -244,5 +292,65 @@ fun DateBox(label: String, value: String, modifier: Modifier = Modifier, onClick
 fun InfoCard(text: String) {
     Card(colors = CardDefaults.cardColors(containerColor = DarkCard), modifier = Modifier.fillMaxWidth()) {
         Text(text, color = TextSecondary, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+fun SymbolSuggestionList(results: List<String>, onSelect: (String) -> Unit) {
+    if (results.isEmpty()) return
+    Card(
+        colors = CardDefaults.cardColors(containerColor = DarkCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 240.dp)
+            .border(1.dp, DarkBorder, RoundedCornerShape(8.dp))
+    ) {
+        LazyColumn {
+            items(results) { symbol ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(symbol) }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.TrendingUp, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(symbol, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                }
+                Divider(color = DarkBorder, thickness = 0.5.dp)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SymbolChipFlow(symbols: List<String>, onRemove: (String) -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        symbols.forEach { symbol ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .background(AccentBlue.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+                    .border(1.dp, AccentBlue, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(symbol, color = TextPrimary, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Remove",
+                    tint = AccentRed,
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clickable { onRemove(symbol) }
+                )
+            }
+        }
     }
 }
