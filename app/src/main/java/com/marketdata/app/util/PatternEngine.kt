@@ -31,6 +31,84 @@ data class TradeLevels(
     val riskReward: Double
 )
 
+enum class TradingStyle(val label: String, val blurb: String) {
+    SCALP("Scalp", "Minutes-long trades, square off fast, tight stops"),
+    INTRADAY("Intraday", "Same-day trades, square off by market close"),
+    SHORT_TERM("Short-Term", "Held a few days to a couple weeks (swing)"),
+    POSITIONAL("Positional", "Held weeks to months, wider stops")
+}
+
+/**
+ * intervalIndex refers to NiftySymbols.INTERVALS (0=1Min ... 7=Day, 8=Week).
+ * lookbackDays is capped implicitly by Kite's own history retention per interval
+ * (see NiftySymbols.INTERVAL_DAY_LIMITS) - the chip options below stay within that.
+ */
+data class StylePreset(
+    val style: TradingStyle,
+    val intervalIndex: Int,
+    val lookbackDays: Int,
+    val lookbackChipOptions: List<Int>,
+    val sessionOnly: Boolean,
+    val thresholdFactor: Double,
+    val slAtrMult: Double,
+    val targetAtrMult: Double,
+    val minOccurrences: Int,
+    val minAccuracy: Double
+)
+
+object TradingStyles {
+    val PRESETS: Map<TradingStyle, StylePreset> = mapOf(
+        TradingStyle.SCALP to StylePreset(
+            style = TradingStyle.SCALP,
+            intervalIndex = 0, // 1 Min
+            lookbackDays = 15,
+            lookbackChipOptions = listOf(5, 10, 20, 40),
+            sessionOnly = true,
+            thresholdFactor = 0.08,
+            slAtrMult = 0.5,
+            targetAtrMult = 0.9,
+            minOccurrences = 25,
+            minAccuracy = 0.58
+        ),
+        TradingStyle.INTRADAY to StylePreset(
+            style = TradingStyle.INTRADAY,
+            intervalIndex = 2, // 5 Min
+            lookbackDays = 30,
+            lookbackChipOptions = listOf(10, 20, 30, 60),
+            sessionOnly = true,
+            thresholdFactor = 0.10,
+            slAtrMult = 0.7,
+            targetAtrMult = 1.3,
+            minOccurrences = 15,
+            minAccuracy = 0.56
+        ),
+        TradingStyle.SHORT_TERM to StylePreset(
+            style = TradingStyle.SHORT_TERM,
+            intervalIndex = 7, // Day
+            lookbackDays = 150,
+            lookbackChipOptions = listOf(60, 90, 150, 180),
+            sessionOnly = false,
+            thresholdFactor = 0.15,
+            slAtrMult = 0.8,
+            targetAtrMult = 1.5,
+            minOccurrences = 12,
+            minAccuracy = 0.55
+        ),
+        TradingStyle.POSITIONAL to StylePreset(
+            style = TradingStyle.POSITIONAL,
+            intervalIndex = 8, // Week
+            lookbackDays = 730,
+            lookbackChipOptions = listOf(180, 365, 730, 1095),
+            sessionOnly = false,
+            thresholdFactor = 0.15,
+            slAtrMult = 1.0,
+            targetAtrMult = 2.5,
+            minOccurrences = 8,
+            minAccuracy = 0.55
+        )
+    )
+}
+
 /**
  * Pattern-mining / backtest engine used by the Scanner screen.
  *
@@ -118,26 +196,45 @@ object PatternEngine {
      * for every pre-specified pattern that occurred at least once, plus whether each
      * pattern is ACTIVE on the most recent candle (i.e. a live, tradeable setup as of
      * the last close).
+     *
+     * @param sessionOnly When true (use for scalp/intraday), candlestick-shape patterns
+     *   (3-in-a-row, engulfing) must fall entirely within the same trading session, and
+     *   the next-candle outcome used to score a signal must also stay within that same
+     *   session. Without this, a "pattern" could be built from yesterday's last candles
+     *   plus today's first one, silently mixing overnight gap risk into what's supposed
+     *   to be pure intraday momentum.
+     * @param thresholdFactor The up/down classification threshold scales with each
+     *   candle's own ATR-to-price ratio (thresholdFactor * ATR/price) instead of a fixed
+     *   percentage. A flat 0.05% cutoff tuned for daily bars is far too loose for 1-min
+     *   candles (most won't clear it) and would silently deflate every pattern's accuracy.
      */
-    fun scan(symbol: String, candles: List<KiteCandle>): List<PatternResult> {
+    fun scan(
+        symbol: String,
+        candles: List<KiteCandle>,
+        sessionOnly: Boolean = false,
+        thresholdFactor: Double = 0.15
+    ): List<PatternResult> {
         if (candles.size < 30) return emptyList()
         val n = candles.size
         val close = candles.map { it.close }
         val open = candles.map { it.open }
         val volume = candles.map { it.volume.toDouble() }
+        val sessionDate = candles.map { it.timestamp.take(10) } // "yyyy-MM-dd"
         val rsiVals = rsi(close)
         val atrVals = atr(candles)
         val volAvg20 = MutableList<Double?>(n) { null }
         for (i in 19 until n) volAvg20[i] = volume.subList(i - 19, i + 1).average()
 
-        fun down3(i: Int) = i >= 3 && close[i - 2] > close[i - 1] && close[i - 1] > close[i]
-        fun up3(i: Int) = i >= 3 && close[i - 2] < close[i - 1] && close[i - 1] < close[i]
+        fun sameSession(a: Int, b: Int) = !sessionOnly || sessionDate[a] == sessionDate[b]
+
+        fun down3(i: Int) = i >= 3 && close[i - 2] > close[i - 1] && close[i - 1] > close[i] && sameSession(i - 2, i)
+        fun up3(i: Int) = i >= 3 && close[i - 2] < close[i - 1] && close[i - 1] < close[i] && sameSession(i - 2, i)
         fun rsiOS(i: Int) = (rsiVals[i] ?: 50.0) < 30
         fun rsiOB(i: Int) = (rsiVals[i] ?: 50.0) > 70
         fun bullEngulf(i: Int) = i >= 1 && close[i - 1] < open[i - 1] && close[i] > open[i] &&
-            close[i] >= open[i - 1] && open[i] <= close[i - 1]
+            close[i] >= open[i - 1] && open[i] <= close[i - 1] && sameSession(i - 1, i)
         fun bearEngulf(i: Int) = i >= 1 && close[i - 1] > open[i - 1] && close[i] < open[i] &&
-            open[i] >= close[i - 1] && close[i] <= open[i - 1]
+            open[i] >= close[i - 1] && close[i] <= open[i - 1] && sameSession(i - 1, i)
         fun volSpike(i: Int): Boolean {
             val avg = volAvg20[i] ?: return false
             if (avg <= 0) return false
@@ -158,6 +255,12 @@ object PatternEngine {
             else -> false
         }
 
+        fun moveThreshold(i: Int): Double {
+            val atrRatio = (atrVals[i] ?: (candles[i].high - candles[i].low)) / close[i]
+            val t = thresholdFactor * atrRatio
+            return if (t.isFinite() && t > 0) t else 0.0005
+        }
+
         val results = mutableListOf<PatternResult>()
         val cmp = close[n - 1]
         val lastAtr = atrVals[n - 1] ?: (candles[n - 1].high - candles[n - 1].low)
@@ -167,10 +270,12 @@ object PatternEngine {
             var hits = 0
             for (i in 0 until n - 1) { // need i+1 to exist for the outcome
                 if (!condFor(pat.id, i)) continue
+                if (sessionOnly && sessionDate[i] != sessionDate[i + 1]) continue // don't score across a session boundary
                 occ++
+                val thr = moveThreshold(i)
                 val ret = close[i + 1] / close[i] - 1
-                val wentUp = ret > 0.0005
-                val wentDown = ret < -0.0005
+                val wentUp = ret > thr
+                val wentDown = ret < -thr
                 val hit = if (pat.direction == Direction.UP) wentUp else wentDown
                 if (hit) hits++
             }

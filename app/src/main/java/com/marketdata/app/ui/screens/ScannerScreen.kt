@@ -25,6 +25,8 @@ import com.marketdata.app.util.NiftySymbols
 import com.marketdata.app.viewmodel.ScanPick
 import com.marketdata.app.viewmodel.ScanSource
 import com.marketdata.app.viewmodel.ScannerViewModel
+import com.marketdata.app.util.TradingStyle
+import com.marketdata.app.util.TradingStyles
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -48,6 +50,22 @@ fun ScannerScreen(viewModel: ScannerViewModel) {
             color = TextSecondary, style = MaterialTheme.typography.bodySmall
         )
 
+        // ---- Strategy / trading style ----
+        SectionHeader("STRATEGY")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SelectionChip("Scalp", state.style == TradingStyle.SCALP) { viewModel.applyStyle(TradingStyle.SCALP) }
+            SelectionChip("Intraday", state.style == TradingStyle.INTRADAY) { viewModel.applyStyle(TradingStyle.INTRADAY) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SelectionChip("Short-Term", state.style == TradingStyle.SHORT_TERM) { viewModel.applyStyle(TradingStyle.SHORT_TERM) }
+            SelectionChip("Positional", state.style == TradingStyle.POSITIONAL) { viewModel.applyStyle(TradingStyle.POSITIONAL) }
+        }
+        Text(state.style.blurb, color = TextMuted, style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Sets timeframe, lookback, session handling and ATR stop/target for you \u2014 all still editable below.",
+            color = TextMuted, style = MaterialTheme.typography.bodySmall
+        )
+
         // ---- Data source ----
         SectionHeader("DATA SOURCE")
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -61,6 +79,10 @@ fun ScannerScreen(viewModel: ScannerViewModel) {
 
         if (state.source == ScanSource.DOWNLOADED_FILE) {
             FileSourcePicker(state.downloadedFiles, state.selectedFileId, onSelect = { viewModel.selectFile(it) })
+            Text(
+                "The file's own timeframe applies (not the Strategy timeframe above) \u2014 session handling, thresholds and ATR stop/target still come from your Strategy.",
+                color = TextMuted, style = MaterialTheme.typography.bodySmall
+            )
         } else {
             LiveSourcePicker(viewModel)
         }
@@ -271,17 +293,40 @@ private fun LiveSourcePicker(viewModel: ScannerViewModel) {
     }
 
     SectionHeader("LOOKBACK")
+    val chipOptions = TradingStyles.PRESETS.getValue(state.style).lookbackChipOptions
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(1, 3, 5, 12).forEach { m ->
-            SelectionChip("${m}mo", state.lookbackMonths == m) { viewModel.setLookbackMonths(m) }
+        chipOptions.forEach { d ->
+            SelectionChip(formatLookback(d), state.lookbackDays == d) { viewModel.setLookbackDays(d) }
         }
     }
+}
+
+private fun formatLookback(days: Int): String = when {
+    days % 365 == 0 && days >= 365 -> "${days / 365}y"
+    days % 30 == 0 && days >= 60 -> "${days / 30}mo"
+    else -> "${days}d"
 }
 
 @Composable
 private fun AdvancedSettings(state: com.marketdata.app.viewmodel.ScannerState, viewModel: ScannerViewModel) {
     Card(colors = CardDefaults.cardColors(containerColor = DarkCard), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Session-only patterns", color = TextPrimary, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Keep candlestick patterns within the same trading day (recommended for Scalp/Intraday)",
+                        color = TextMuted, style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(checked = state.sessionOnly, onCheckedChange = { viewModel.setSessionOnly(it) })
+            }
+            Text("Move threshold: ${state.thresholdFactor}\u00d7ATR-ratio", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0.05, 0.08, 0.10, 0.15, 0.20).forEach { v ->
+                    SelectionChip("$v", state.thresholdFactor == v) { viewModel.setThresholdFactor(v) }
+                }
+            }
             Text("Min occurrences: ${state.minOccurrences}", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(8, 12, 15, 20).forEach { v ->

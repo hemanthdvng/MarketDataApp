@@ -14,7 +14,10 @@ import com.marketdata.app.util.Direction
 import com.marketdata.app.util.NiftySymbols
 import com.marketdata.app.util.PatternEngine
 import com.marketdata.app.util.PatternResult
+import com.marketdata.app.util.StylePreset
 import com.marketdata.app.util.TradeLevels
+import com.marketdata.app.util.TradingStyle
+import com.marketdata.app.util.TradingStyles
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -30,14 +33,17 @@ data class ScanPick(
 
 data class ScannerState(
     val source: ScanSource = ScanSource.DOWNLOADED_FILE,
+    val style: TradingStyle = TradingStyle.SHORT_TERM,
     val selectionType: SelectionType = SelectionType.NIFTY100,
     val singleSymbol: String = "",
     val multiSymbols: List<String> = emptyList(),
     val symbolQuery: String = "",
     val selectedInterval: Int = 7, // index into NiftySymbols.INTERVALS ("Day")
-    val lookbackMonths: Int = 5,
+    val lookbackDays: Int = 150,
     val downloadedFiles: List<DownloadedFileEntity> = emptyList(),
     val selectedFileId: Int? = null,
+    val sessionOnly: Boolean = false,
+    val thresholdFactor: Double = 0.15,
     val minOccurrences: Int = 12,
     val minAccuracy: Double = 0.55,
     val slAtrMult: Double = 0.8,
@@ -75,6 +81,26 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setSource(s: ScanSource) = update { copy(source = s) }
+
+    /** Applies a strategy preset's defaults (interval, lookback, thresholds, ATR multiples).
+     *  Everything it sets remains editable afterwards via the individual setters below. */
+    fun applyStyle(style: TradingStyle) {
+        val p: StylePreset = TradingStyles.PRESETS.getValue(style)
+        update {
+            copy(
+                style = style,
+                selectedInterval = p.intervalIndex,
+                lookbackDays = p.lookbackDays,
+                sessionOnly = p.sessionOnly,
+                thresholdFactor = p.thresholdFactor,
+                slAtrMult = p.slAtrMult,
+                targetAtrMult = p.targetAtrMult,
+                minOccurrences = p.minOccurrences,
+                minAccuracy = p.minAccuracy
+            )
+        }
+    }
+
     fun setSelectionType(t: SelectionType) = update { copy(selectionType = t, symbolQuery = "") }
     fun setSingleSymbol(s: String) = update { copy(singleSymbol = s.uppercase(), symbolQuery = "") }
     fun clearSingleSymbol() = update { copy(singleSymbol = "") }
@@ -84,8 +110,10 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun removeMultiSymbol(s: String) = update { copy(multiSymbols = multiSymbols - s) }
     fun setInterval(i: Int) = update { copy(selectedInterval = i) }
-    fun setLookbackMonths(m: Int) = update { copy(lookbackMonths = m) }
+    fun setLookbackDays(d: Int) = update { copy(lookbackDays = d) }
     fun selectFile(id: Int) = update { copy(selectedFileId = id) }
+    fun setSessionOnly(v: Boolean) = update { copy(sessionOnly = v) }
+    fun setThresholdFactor(v: Double) = update { copy(thresholdFactor = v) }
     fun setMinOccurrences(v: Int) = update { copy(minOccurrences = v) }
     fun setMinAccuracy(v: Double) = update { copy(minAccuracy = v) }
     fun setSlMult(v: Double) = update { copy(slAtrMult = v) }
@@ -136,7 +164,7 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
                 update { copy(progressText = "Scanning ${dataMap.size} symbols...") }
                 val allResults = mutableListOf<PatternResult>()
                 for ((sym, candles) in dataMap) {
-                    allResults.addAll(PatternEngine.scan(sym, candles))
+                    allResults.addAll(PatternEngine.scan(sym, candles, sessionOnly = s.sessionOnly, thresholdFactor = s.thresholdFactor))
                 }
 
                 val cur = _state.value
@@ -184,7 +212,7 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
         val intervalKey = intervalEntry.second
 
         val toDate = Date()
-        val fromDate = Calendar.getInstance().apply { add(Calendar.MONTH, -s.lookbackMonths) }.time
+        val fromDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -s.lookbackDays) }.time
 
         var tokenMap = repo.getTokensForSymbols(symbols)
         if (tokenMap.isEmpty()) {
