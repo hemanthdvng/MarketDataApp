@@ -10,6 +10,10 @@ Android app for downloading NSE historical market data via Kite Connect API, vie
 - Live on-demand quotes
 - CSV export to user-selected folder (SAF)
 - AI Agent chat (Claude or Gemini) with live market data context
+- Pattern Scanner: backtests 10 candidate technical patterns (fixed, pre-specified
+  directions to avoid overfitting) across any downloaded CSV or live symbol set,
+  ranks active setups by accuracy × sample size, and outputs ATR-based entry/SL/target
+  for the top 3 BUY and top 3 SELL candidates
 - Local file browser for downloaded CSVs
 
 ## Setup

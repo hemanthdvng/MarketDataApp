@@ -27,11 +27,12 @@ sealed class Screen(val route: String, val label: String, val icon: androidx.com
     object Auth : Screen("auth", "Login", Icons.Default.Key)
     object Download : Screen("download", "Download", Icons.Default.Download)
     object Live : Screen("live", "Live", Icons.Default.ShowChart)
+    object Scanner : Screen("scanner", "Scanner", Icons.Default.TrendingUp)
     object Agent : Screen("agent", "Agent", Icons.Default.SmartToy)
     object Files : Screen("files", "Files", Icons.Default.Folder)
 }
 
-val bottomNavItems = listOf(Screen.Auth, Screen.Download, Screen.Live, Screen.Agent, Screen.Files)
+val bottomNavItems = listOf(Screen.Auth, Screen.Download, Screen.Live, Screen.Scanner, Screen.Agent, Screen.Files)
 
 class MainActivity : ComponentActivity() {
 
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
     private val liveQuotesViewModel: LiveQuotesViewModel by viewModels()
     private val agentViewModel: AgentViewModel by viewModels()
     private val filesViewModel: FilesViewModel by viewModels()
+    private val scannerViewModel: ScannerViewModel by viewModels()
 
     private val kiteAuthLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -62,6 +64,7 @@ class MainActivity : ComponentActivity() {
                     liveQuotesViewModel = liveQuotesViewModel,
                     agentViewModel = agentViewModel,
                     filesViewModel = filesViewModel,
+                    scannerViewModel = scannerViewModel,
                     onLoginClick = { startKiteLogin() }
                 )
             }
@@ -84,6 +87,7 @@ fun MainScreen(
     liveQuotesViewModel: LiveQuotesViewModel,
     agentViewModel: AgentViewModel,
     filesViewModel: FilesViewModel,
+    scannerViewModel: ScannerViewModel,
     onLoginClick: () -> Unit
 ) {
     val navController = rememberNavController()
@@ -133,6 +137,9 @@ fun MainScreen(
             }
             composable(Screen.Live.route) {
                 LiveQuotesScreen(viewModel = liveQuotesViewModel)
+            }
+            composable(Screen.Scanner.route) {
+                ScannerScreen(viewModel = scannerViewModel)
             }
             composable(Screen.Agent.route) {
                 AgentScreen(viewModel = agentViewModel)

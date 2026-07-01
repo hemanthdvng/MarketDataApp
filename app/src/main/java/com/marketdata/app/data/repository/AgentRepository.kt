@@ -151,13 +151,26 @@ Format numbers clearly. Use INR for prices.
                 put("generationConfig", JSONObject().apply {
                     put("maxOutputTokens", 2048)
                     put("temperature", 0.7)
+                    // Disable extended "thinking" so the response is a single plain text
+                    // part. Newer Gemini models think by default; when that's on, the
+                    // first part(s) of candidates[0].content.parts can be internal
+                    // "thought" blocks with no (or different) text, which breaks naive
+                    // parts[0].text parsing. Keeping this off makes the response shape
+                    // predictable for this simple chat use case.
+                    put("thinkingConfig", JSONObject().apply {
+                        put("thinkingBudget", 0)
+                    })
                 })
             }
 
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=$apiKey"
+            // Current Gemini API auth: x-goog-api-key header (see ai.google.dev/api).
+            // The older "?key=" query param can still work but the header is what
+            // Google's own docs/examples use now, so we match that exactly.
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent"
 
             val request = Request.Builder()
                 .url(url)
+                .addHeader("x-goog-api-key", apiKey)
                 .addHeader("content-type", "application/json")
                 .post(body.toString().toRequestBody(JSON))
                 .build()
@@ -170,13 +183,43 @@ Format numbers clearly. Use INR for prices.
             }
 
             val json = JSONObject(responseBody)
-            val text = json.getJSONArray("candidates")
-                .getJSONObject(0)
-                .getJSONObject("content")
-                .getJSONArray("parts")
-                .getJSONObject(0)
-                .getString("text")
-            Result.success(text)
+
+            // The prompt itself can be blocked (e.g. safety filters) before any
+            // candidate is produced at all -- surface that clearly instead of a
+            // generic "no value for candidates" crash.
+            val promptFeedback = json.optJSONObject("promptFeedback")
+            val blockReason = promptFeedback?.optString("blockReason", "")
+            if (!blockReason.isNullOrEmpty()) {
+                return Result.failure(Exception("Gemini blocked the request ($blockReason). Try rephrasing."))
+            }
+
+            val candidates = json.optJSONArray("candidates")
+            if (candidates == null || candidates.length() == 0) {
+                return Result.failure(Exception("Gemini returned no response. Raw: ${responseBody.take(300)}"))
+            }
+
+            val candidate = candidates.getJSONObject(0)
+            val finishReason = candidate.optString("finishReason", "")
+            val parts = candidate.optJSONObject("content")?.optJSONArray("parts")
+
+            // Concatenate every non-"thought" text part, in case the model returns
+            // more than one part (e.g. partial thinking traces mixed with the answer).
+            val text = StringBuilder()
+            if (parts != null) {
+                for (i in 0 until parts.length()) {
+                    val part = parts.getJSONObject(i)
+                    val isThought = part.optBoolean("thought", false)
+                    if (isThought) continue
+                    if (part.has("text")) text.append(part.getString("text"))
+                }
+            }
+
+            if (text.isEmpty()) {
+                val reasonMsg = if (finishReason.isNotEmpty()) " (finishReason: $finishReason)" else ""
+                return Result.failure(Exception("Gemini returned an empty response$reasonMsg. Try again."))
+            }
+
+            Result.success(text.toString())
         } catch (e: Exception) {
             Result.failure(e)
         }
