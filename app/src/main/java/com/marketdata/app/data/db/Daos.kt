@@ -26,10 +26,17 @@ interface InstrumentDao {
     @Query("SELECT * FROM instruments WHERE tradingSymbol LIKE :query AND exchange = 'NSE' LIMIT 20")
     suspend fun search(query: String): List<InstrumentEntity>
 
-    @Query("SELECT DISTINCT expiry FROM instruments WHERE name = :underlying AND exchange = 'NFO' AND (instrumentType = 'CE' OR instrumentType = 'PE') AND expiry != '' ORDER BY expiry ASC")
+    // Index option underlyings (BANKNIFTY, FINNIFTY, etc.) don't reliably have
+    // `name` == the code you select - Kite's dump uses the official index name
+    // there instead (e.g. name="NIFTY BANK" for BANKNIFTY options), which is
+    // exactly why the spot-price lookup already needed its own mapping. The
+    // tradingSymbol, on the other hand, ALWAYS starts with the exact underlying
+    // code ("BANKNIFTY25DEC48000CE", "RELIANCE25DEC1400CE") regardless of what
+    // `name` says, so matching on that prefix is what's actually reliable here.
+    @Query("SELECT DISTINCT expiry FROM instruments WHERE tradingSymbol LIKE (:underlying || '%') AND exchange = 'NFO' AND (instrumentType = 'CE' OR instrumentType = 'PE') AND expiry != '' ORDER BY expiry ASC")
     suspend fun getExpiriesForUnderlying(underlying: String): List<String>
 
-    @Query("SELECT * FROM instruments WHERE name = :underlying AND exchange = 'NFO' AND expiry = :expiry AND (instrumentType = 'CE' OR instrumentType = 'PE') ORDER BY strike ASC")
+    @Query("SELECT * FROM instruments WHERE tradingSymbol LIKE (:underlying || '%') AND exchange = 'NFO' AND expiry = :expiry AND (instrumentType = 'CE' OR instrumentType = 'PE') ORDER BY strike ASC")
     suspend fun getOptionsForExpiry(underlying: String, expiry: String): List<InstrumentEntity>
 
     @Query("SELECT COUNT(*) FROM instruments WHERE exchange = 'NFO'")

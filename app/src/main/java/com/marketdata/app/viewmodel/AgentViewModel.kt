@@ -200,7 +200,8 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     update { copy(messages = messages + assistantMsg, isLoading = false) }
                 },
                 onFailure = { e ->
-                    update { copy(isLoading = false, error = e.message ?: "AI error") }
+                    val msg = e.message?.takeIf { it.isNotBlank() } ?: "AI error (${e::class.java.simpleName})"
+                    update { copy(isLoading = false, error = msg) }
                 }
             )
         }

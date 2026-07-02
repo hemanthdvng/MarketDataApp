@@ -6,6 +6,7 @@ import com.marketdata.app.data.models.AiProvider
 import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.data.prefs.SecurePrefs
+import kotlinx.coroutines.CancellationException
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -14,6 +15,18 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class AgentRepository(private val prefs: SecurePrefs) {
+
+    /** Some exceptions (esp. around cancellation/IO) have a null .message, which
+     *  previously surfaced to the user as a bare, undiagnosable "AI error". This
+     *  guarantees something actionable: the real message if there is one, else
+     *  the exception's class name (and its cause's, if any) so a report of what
+     *  went wrong can actually be traced to a fix. */
+    private fun describeError(e: Throwable): String {
+        val own = e.message?.takeIf { it.isNotBlank() }
+        if (own != null) return own
+        val causeDesc = e.cause?.let { " (caused by ${it::class.java.simpleName}${it.message?.let { m -> ": $m" } ?: ""})" } ?: ""
+        return "${e::class.java.simpleName}$causeDesc"
+    }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -148,8 +161,10 @@ Format numbers clearly. Use INR for prices.
             val json = JSONObject(responseBody)
             val content = json.getJSONArray("content").getJSONObject(0).getString("text")
             Result.success(content)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(describeError(e), e))
         }
     }
 
@@ -281,8 +296,10 @@ Format numbers clearly. Use INR for prices.
             }
 
             Result.success(text.toString())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(describeError(e), e))
         }
     }
 
