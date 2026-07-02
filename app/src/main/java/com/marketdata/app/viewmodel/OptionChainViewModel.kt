@@ -1,10 +1,12 @@
 package com.marketdata.app.viewmodel
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.marketdata.app.data.models.OptionChainRow
 import com.marketdata.app.data.repository.KiteRepository
+import com.marketdata.app.util.CsvWriter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +46,14 @@ data class OptionChainState(
     val error: String? = null,
     val autoRefreshEnabled: Boolean = false,
     val refreshIntervalSeconds: Int = 15,
-    val lastUpdatedLabel: String = ""
+    val lastUpdatedLabel: String = "",
+    // Contract selection (tap a CE/PE cell in the chain to select it).
+    val selectedContract: OptionChainRow? = null,
+    val selectedSide: String = "", // "CE" or "PE"
+    // CSV export (of whatever's currently on screen / the full chain).
+    val isExporting: Boolean = false,
+    val exportError: String? = null,
+    val exportMessage: String? = null
 )
 
 /**
@@ -74,7 +83,8 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
         update {
             copy(
                 underlying = name.uppercase(), underlyingInput = "",
-                expiries = emptyList(), selectedExpiry = "", rows = emptyList(), spotPrice = 0.0
+                expiries = emptyList(), selectedExpiry = "", rows = emptyList(), spotPrice = 0.0,
+                selectedContract = null, selectedSide = ""
             )
         }
         loadExpiries()
@@ -88,7 +98,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
     fun selectExpiry(expiry: String) {
         strikesCache = emptyList()
         symbolsCache = emptyMap()
-        update { copy(selectedExpiry = expiry, rows = emptyList()) }
+        update { copy(selectedExpiry = expiry, rows = emptyList(), selectedContract = null, selectedSide = "") }
         viewModelScope.launch { loadChainOnce() }
     }
 
@@ -238,6 +248,135 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() = update { copy(error = null) }
+
+    /** Selects/deselects a contract from the on-screen chain (tap a CE or PE cell). */
+    fun selectContract(row: OptionChainRow, side: String) {
+        val s = _state.value
+        if (s.selectedContract == row && s.selectedSide == side) {
+            update { copy(selectedContract = null, selectedSide = "") }
+        } else {
+            update { copy(selectedContract = row, selectedSide = side) }
+        }
+    }
+
+    fun clearSelection() = update { copy(selectedContract = null, selectedSide = "") }
+
+    fun clearExportMessage() = update { copy(exportError = null, exportMessage = null) }
+
+    /** Exports the rows currently visible on screen (the strike window around ATM). */
+    fun exportVisibleChain(folderUri: Uri) {
+        val s = _state.value
+        if (s.rows.isEmpty()) {
+            update { copy(exportError = "No option chain data loaded yet") }
+            return
+        }
+        viewModelScope.launch {
+            update { copy(isExporting = true, exportError = null, exportMessage = null) }
+            try {
+                val fileName = CsvWriter.generateOptionChainFileName(s.underlying, s.selectedExpiry)
+                val docUri = androidx.documentfile.provider.DocumentFile
+                    .fromTreeUri(getApplication(), folderUri)
+                    ?.createFile("text/csv", fileName)
+                    ?.uri
+                if (docUri == null) {
+                    update { copy(isExporting = false, exportError = "Failed to create file in selected folder") }
+                    return@launch
+                }
+                val rows = CsvWriter.writeOptionChainToUri(
+                    getApplication(), docUri, s.underlying, s.selectedExpiry, s.spotPrice, s.rows
+                )
+                update { copy(isExporting = false, exportMessage = "Saved $fileName ($rows strikes)") }
+            } catch (e: Exception) {
+                update { copy(isExporting = false, exportError = "Export failed: ${e.message}") }
+            }
+        }
+    }
+
+    /** Downloads the FULL option chain for the current underlying+expiry (every strike,
+     *  not just the on-screen +/- window around ATM). Used by the Download tab. */
+    fun downloadFullChain(folderUri: Uri) {
+        val s = _state.value
+        if (s.selectedExpiry.isBlank()) {
+            update { copy(exportError = "Pick an underlying + expiry on the Options tab first") }
+            return
+        }
+        viewModelScope.launch {
+            update { copy(isExporting = true, exportError = null, exportMessage = null) }
+            try {
+                val instruments = repo.getOptionChainInstruments(s.underlying, s.selectedExpiry)
+                val byStrike = instruments.groupBy { it.strike }
+                if (byStrike.isEmpty()) {
+                    update { copy(isExporting = false, exportError = "No strikes found for this expiry") }
+                    return@launch
+                }
+                val strikes = byStrike.keys.sorted()
+                val symbolsByStrike = strikes.associateWith { strike ->
+                    val list = byStrike[strike] ?: emptyList()
+                    (list.find { it.instrumentType == "CE" }?.tradingSymbol ?: "") to
+                        (list.find { it.instrumentType == "PE" }?.tradingSymbol ?: "")
+                }
+
+                val spotSymbol = OPTION_CHAIN_SPOT_SYMBOL[s.underlying] ?: s.underlying
+                val spotResult = repo.fetchQuotesRaw(listOf("NSE:$spotSymbol"))
+                val spot = spotResult.getOrNull()?.values?.firstOrNull()?.last_price ?: s.spotPrice
+                val atmStrike = strikes.minByOrNull { abs(it - spot) } ?: strikes.first()
+
+                val allRows = mutableListOf<OptionChainRow>()
+                // Kite's quote endpoint caps instruments per request - fetch in batches.
+                for (batch in strikes.chunked(150)) {
+                    val ids = mutableListOf<String>()
+                    for (strike in batch) {
+                        val (ce, pe) = symbolsByStrike[strike] ?: ("" to "")
+                        if (ce.isNotBlank()) ids.add("NFO:$ce")
+                        if (pe.isNotBlank()) ids.add("NFO:$pe")
+                    }
+                    if (ids.isEmpty()) continue
+                    val quotes = repo.fetchQuotesRaw(ids).getOrElse { e ->
+                        update { copy(isExporting = false, exportError = "Quote fetch failed: ${e.message}") }
+                        return@launch
+                    }
+                    for (strike in batch) {
+                        val (ce, pe) = symbolsByStrike[strike] ?: ("" to "")
+                        val ceQ = quotes["NFO:$ce"]
+                        val peQ = quotes["NFO:$pe"]
+                        allRows.add(
+                            OptionChainRow(
+                                strike = strike,
+                                isAtm = strike == atmStrike,
+                                ceSymbol = ce,
+                                ceLtp = ceQ?.last_price ?: 0.0,
+                                ceBid = ceQ?.depth?.buy?.firstOrNull()?.price ?: 0.0,
+                                ceAsk = ceQ?.depth?.sell?.firstOrNull()?.price ?: 0.0,
+                                ceOi = ceQ?.oi?.toLong() ?: 0L,
+                                ceVolume = ceQ?.volume ?: 0L,
+                                peSymbol = pe,
+                                peLtp = peQ?.last_price ?: 0.0,
+                                peBid = peQ?.depth?.buy?.firstOrNull()?.price ?: 0.0,
+                                peAsk = peQ?.depth?.sell?.firstOrNull()?.price ?: 0.0,
+                                peOi = peQ?.oi?.toLong() ?: 0L,
+                                peVolume = peQ?.volume ?: 0L
+                            )
+                        )
+                    }
+                    delay(350) // stay under Kite's rate limit across batches
+                }
+
+                val fileName = CsvWriter.generateOptionChainFileName(s.underlying, s.selectedExpiry)
+                val docUri = androidx.documentfile.provider.DocumentFile
+                    .fromTreeUri(getApplication(), folderUri)
+                    ?.createFile("text/csv", fileName)
+                    ?.uri
+                if (docUri == null) {
+                    update { copy(isExporting = false, exportError = "Failed to create file in selected folder") }
+                    return@launch
+                }
+                val written = CsvWriter.writeOptionChainToUri(getApplication(), docUri, s.underlying, s.selectedExpiry, spot, allRows)
+                update { copy(isExporting = false, exportMessage = "Saved $fileName ($written strikes, full chain)") }
+            } catch (e: Exception) {
+                update { copy(isExporting = false, exportError = "Download failed: ${e.message}") }
+            }
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()

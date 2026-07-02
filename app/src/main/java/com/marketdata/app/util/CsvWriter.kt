@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.marketdata.app.data.models.KiteCandle
 import com.marketdata.app.data.models.LiveQuoteDisplay
+import com.marketdata.app.data.models.OptionChainRow
 import java.io.BufferedWriter
 import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
@@ -95,6 +96,39 @@ object CsvWriter {
                 writer.flush()
             }
         }
+    }
+
+    /** Writes an option chain (one row per strike, CE+PE side by side) to CSV. */
+    fun writeOptionChainToUri(
+        context: Context,
+        uri: Uri,
+        underlying: String,
+        expiry: String,
+        spotPrice: Double,
+        rows: List<OptionChainRow>
+    ): Int {
+        context.contentResolver.openOutputStream(uri)?.use { os ->
+            BufferedWriter(OutputStreamWriter(os)).use { writer ->
+                writer.write("Underlying,Expiry,SpotPrice,Strike,IsATM,CE_Symbol,CE_LTP,CE_Bid,CE_Ask,CE_OI,CE_Volume,PE_Symbol,PE_LTP,PE_Bid,PE_Ask,PE_OI,PE_Volume")
+                writer.newLine()
+                for (r in rows) {
+                    writer.write(
+                        "$underlying,$expiry,$spotPrice,${r.strike},${r.isAtm}," +
+                        "${r.ceSymbol},${r.ceLtp},${r.ceBid},${r.ceAsk},${r.ceOi},${r.ceVolume}," +
+                        "${r.peSymbol},${r.peLtp},${r.peBid},${r.peAsk},${r.peOi},${r.peVolume}"
+                    )
+                    writer.newLine()
+                }
+                writer.flush()
+            }
+        }
+        return rows.size
+    }
+
+    fun generateOptionChainFileName(underlying: String, expiry: String): String {
+        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val safeExpiry = expiry.replace("-", "")
+        return "${underlying}_${safeExpiry}_optionchain_$ts.csv"
     }
 
     fun generateFileName(symbols: List<String>, interval: String, fromDate: String, toDate: String): String {

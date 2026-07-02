@@ -33,10 +33,13 @@ import com.marketdata.app.ui.theme.*
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
 import com.marketdata.app.viewmodel.DownloadViewModel
+import com.marketdata.app.viewmodel.OPTION_CHAIN_UNDERLYINGS
+import com.marketdata.app.viewmodel.OptionChainViewModel
 
 @Composable
-fun DownloadScreen(viewModel: DownloadViewModel) {
+fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionChainViewModel) {
     val state by viewModel.state.collectAsState()
+    val ocState by optionChainViewModel.state.collectAsState()
     var showFromDatePicker by remember { mutableStateOf(false) }
     var showToDatePicker by remember { mutableStateOf(false) }
 
@@ -53,6 +56,22 @@ fun DownloadScreen(viewModel: DownloadViewModel) {
                 viewModel.setFolder(uri, uri.lastPathSegment ?: "Selected")
             }
         }
+    }
+    val ocFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                optionChainViewModel.downloadFullChain(uri)
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        if (ocState.expiries.isEmpty()) optionChainViewModel.loadExpiries()
     }
 
     Column(
@@ -233,6 +252,54 @@ fun DownloadScreen(viewModel: DownloadViewModel) {
         state.successMessage?.let {
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF001A00)), modifier = Modifier.fillMaxWidth()) {
                 Text(it, color = AccentGreen, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        // ---- Option Chain download (separate from the candle/history download above) ----
+        SectionHeader("OPTION CHAIN")
+        Text(
+            "Downloads every strike of the full chain for one underlying + expiry (not just the on-screen window on the Options tab).",
+            color = TextMuted, style = MaterialTheme.typography.bodySmall
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(OPTION_CHAIN_UNDERLYINGS) { name ->
+                SelectionChip(name, ocState.underlying == name) { optionChainViewModel.selectUnderlying(name) }
+            }
+        }
+        if (ocState.expiries.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(ocState.expiries) { exp ->
+                    SelectionChip(exp, ocState.selectedExpiry == exp) { optionChainViewModel.selectExpiry(exp) }
+                }
+            }
+        } else if (ocState.isLoading) {
+            Text("Loading expiries...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+        }
+        Button(
+            onClick = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                ocFolderLauncher.launch(intent)
+            },
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+            enabled = ocState.selectedExpiry.isNotBlank() && !ocState.isExporting
+        ) {
+            if (ocState.isExporting) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+            } else {
+                Icon(Icons.Default.Download, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("DOWNLOAD FULL OPTION CHAIN CSV")
+            }
+        }
+        ocState.exportMessage?.let {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF001A00)), modifier = Modifier.fillMaxWidth()) {
+                Text(it, color = AccentGreen, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        ocState.exportError?.let {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)), modifier = Modifier.fillMaxWidth()) {
+                Text(it, color = AccentRed, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
             }
         }
 

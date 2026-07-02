@@ -137,7 +137,7 @@ fun MainScreen(
                 AuthScreen(viewModel = authViewModel, onLoginClick = onLoginClick)
             }
             composable(Screen.Download.route) {
-                DownloadScreen(viewModel = downloadViewModel)
+                DownloadScreen(viewModel = downloadViewModel, optionChainViewModel = optionChainViewModel)
             }
             composable(Screen.Live.route) {
                 LiveQuotesScreen(viewModel = liveQuotesViewModel)
