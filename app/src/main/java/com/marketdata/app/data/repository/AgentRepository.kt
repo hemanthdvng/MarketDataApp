@@ -4,6 +4,7 @@ import com.marketdata.app.data.models.AgentMessage
 import com.marketdata.app.data.models.AiModelOption
 import com.marketdata.app.data.models.AiProvider
 import com.marketdata.app.data.models.LiveQuoteDisplay
+import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.data.prefs.SecurePrefs
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -21,7 +22,11 @@ class AgentRepository(private val prefs: SecurePrefs) {
 
     private val JSON = "application/json".toMediaType()
 
-    private fun buildSystemPrompt(quotes: List<LiveQuoteDisplay>?, csvSummary: String?): String {
+    private fun buildSystemPrompt(
+        quotes: List<LiveQuoteDisplay>?,
+        csvSummary: String?,
+        customInstructions: String? = null
+    ): String {
         val sb = StringBuilder()
         sb.append("""
 You are a professional Indian stock market analyst with expertise in NSE/BSE markets, 
@@ -58,6 +63,12 @@ Always mention if you need more specific data to give better analysis.
 Format numbers clearly. Use INR for prices.
 """.trimIndent())
 
+        if (!customInstructions.isNullOrBlank()) {
+            sb.append("\n\nADDITIONAL INSTRUCTIONS FROM THE USER (follow these too, alongside the above):\n")
+            sb.append(customInstructions.trim())
+            sb.append("\n")
+        }
+
         return sb.toString()
     }
 
@@ -65,19 +76,50 @@ Format numbers clearly. Use INR for prices.
         modelId: String,
         messages: List<AgentMessage>,
         liveQuotes: List<LiveQuoteDisplay>? = null,
-        csvSummary: String? = null
+        csvSummary: String? = null,
+        customInstructions: String? = null
     ): Result<String> {
         return try {
             val apiKey = prefs.claudeApiKey
             if (apiKey.isEmpty()) return Result.failure(Exception("Claude API key not set"))
 
-            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary)
+            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary, customInstructions)
 
             val messagesJson = JSONArray()
             for (msg in messages) {
                 val obj = JSONObject()
                 obj.put("role", msg.role)
-                obj.put("content", msg.content)
+                val att = msg.attachment
+                if (att != null) {
+                    // Claude wants content as an array of blocks (not a plain
+                    // string) whenever there's an image/document alongside text.
+                    val blocks = JSONArray()
+                    if (att.mimeType.startsWith("image/")) {
+                        blocks.put(JSONObject().apply {
+                            put("type", "image")
+                            put("source", JSONObject().apply {
+                                put("type", "base64")
+                                put("media_type", att.mimeType)
+                                put("data", att.base64Data)
+                            })
+                        })
+                    } else if (att.mimeType == "application/pdf") {
+                        blocks.put(JSONObject().apply {
+                            put("type", "document")
+                            put("source", JSONObject().apply {
+                                put("type", "base64")
+                                put("media_type", att.mimeType)
+                                put("data", att.base64Data)
+                            })
+                        })
+                    }
+                    if (msg.content.isNotBlank()) {
+                        blocks.put(JSONObject().apply { put("type", "text"); put("text", msg.content) })
+                    }
+                    obj.put("content", blocks)
+                } else {
+                    obj.put("content", msg.content)
+                }
                 messagesJson.put(obj)
             }
 
@@ -115,13 +157,15 @@ Format numbers clearly. Use INR for prices.
         modelId: String,
         messages: List<AgentMessage>,
         liveQuotes: List<LiveQuoteDisplay>? = null,
-        csvSummary: String? = null
+        csvSummary: String? = null,
+        customInstructions: String? = null,
+        thinkingLevel: ThinkingLevel = ThinkingLevel.MEDIUM
     ): Result<String> {
         return try {
             val apiKey = prefs.geminiApiKey
             if (apiKey.isEmpty()) return Result.failure(Exception("Gemini API key not set"))
 
-            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary)
+            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary, customInstructions)
 
             val contents = JSONArray()
 
@@ -139,9 +183,22 @@ Format numbers clearly. Use INR for prices.
 
             for (msg in messages) {
                 val role = if (msg.role == "assistant") "model" else "user"
+                val parts = JSONArray()
+                val att = msg.attachment
+                if (att != null && (att.mimeType.startsWith("image/") || att.mimeType == "application/pdf")) {
+                    parts.put(JSONObject().apply {
+                        put("inlineData", JSONObject().apply {
+                            put("mimeType", att.mimeType)
+                            put("data", att.base64Data)
+                        })
+                    })
+                }
+                if (msg.content.isNotBlank()) {
+                    parts.put(JSONObject().put("text", msg.content))
+                }
                 val obj = JSONObject().apply {
                     put("role", role)
-                    put("parts", JSONArray().put(JSONObject().put("text", msg.content)))
+                    put("parts", parts)
                 }
                 contents.put(obj)
             }
@@ -149,16 +206,20 @@ Format numbers clearly. Use INR for prices.
             val body = JSONObject().apply {
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
-                    put("maxOutputTokens", 2048)
+                    // Thinking now consumes tokens from this same budget on Gemini 3.x,
+                    // so 2048 was tight enough to sometimes truncate the actual answer
+                    // to nothing (surfaced below as "Gemini returned an empty response").
+                    put("maxOutputTokens", 4096)
                     put("temperature", 0.7)
-                    // Disable extended "thinking" so the response is a single plain text
-                    // part. Newer Gemini models think by default; when that's on, the
-                    // first part(s) of candidates[0].content.parts can be internal
-                    // "thought" blocks with no (or different) text, which breaks naive
-                    // parts[0].text parsing. Keeping this off makes the response shape
-                    // predictable for this simple chat use case.
+                    // Gemini 3.x (all three models in AiModels.GEMINI_OPTIONS are 3.x)
+                    // replaced the old integer thinkingConfig.thinkingBudget with a
+                    // string-enum thinkingConfig.thinkingLevel: LOW / MEDIUM / HIGH
+                    // (MINIMAL exists too but 400s on gemini-3.1-pro-preview, so it's
+                    // deliberately not offered here - see ThinkingLevel in Models.kt).
+                    // Sending the old thinkingBudget field to a 3.x model is what was
+                    // breaking these calls. Docs: ai.google.dev/gemini-api/docs/thinking
                     put("thinkingConfig", JSONObject().apply {
-                        put("thinkingBudget", 0)
+                        put("thinkingLevel", thinkingLevel.apiValue)
                     })
                 })
             }
@@ -229,9 +290,11 @@ Format numbers clearly. Use INR for prices.
         model: AiModelOption,
         messages: List<AgentMessage>,
         liveQuotes: List<LiveQuoteDisplay>? = null,
-        csvSummary: String? = null
+        csvSummary: String? = null,
+        customInstructions: String? = null,
+        thinkingLevel: ThinkingLevel = ThinkingLevel.MEDIUM
     ): Result<String> = when (model.provider) {
-        AiProvider.CLAUDE -> callClaude(model.id, messages, liveQuotes, csvSummary)
-        AiProvider.GEMINI -> callGemini(model.id, messages, liveQuotes, csvSummary)
+        AiProvider.CLAUDE -> callClaude(model.id, messages, liveQuotes, csvSummary, customInstructions)
+        AiProvider.GEMINI -> callGemini(model.id, messages, liveQuotes, csvSummary, customInstructions, thinkingLevel)
     }
 }

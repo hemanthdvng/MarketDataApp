@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.ui.theme.*
+import com.marketdata.app.viewmodel.LIVE_REFRESH_INTERVALS
 import com.marketdata.app.viewmodel.LiveQuotesViewModel
 
 @Composable
@@ -78,6 +79,38 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentAmber)
             ) {
                 Text("NIFTY 100")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = DarkCard)) {
+            Column(Modifier.padding(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = state.autoRefreshEnabled,
+                        onCheckedChange = { viewModel.setAutoRefresh(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = AccentBlue)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (state.autoRefreshEnabled) "Auto-refreshing every ${state.refreshIntervalSeconds}s" else "Auto-refresh off",
+                        color = TextPrimary, style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LIVE_REFRESH_INTERVALS.forEach { secs ->
+                        val selected = state.refreshIntervalSeconds == secs
+                        OutlinedButton(
+                            onClick = { viewModel.setRefreshInterval(secs) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (selected) Color.White else AccentBlue,
+                                containerColor = if (selected) AccentBlue else Color.Transparent
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) { Text("${secs}s", style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
             }
         }
 

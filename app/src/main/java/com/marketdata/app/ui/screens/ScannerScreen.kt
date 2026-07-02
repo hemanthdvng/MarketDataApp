@@ -1,5 +1,11 @@
 package com.marketdata.app.ui.screens
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,9 +22,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.marketdata.app.data.models.SelectionType
+import com.marketdata.app.data.prefs.SecurePrefs
+import com.marketdata.app.service.PatternScanService
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.util.Direction
 import com.marketdata.app.util.NiftySymbols
@@ -35,6 +45,54 @@ fun ScannerScreen(viewModel: ScannerViewModel) {
     val state by viewModel.state.collectAsState()
     var showAdvanced by remember { mutableStateOf(false) }
     var showAllSignals by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val prefs = remember { SecurePrefs.getInstance(context) }
+    var bgRunning by remember { mutableStateOf(prefs.scannerBgRunning) }
+    var bgIntervalSecs by remember { mutableStateOf(prefs.scannerBgIntervalSeconds) }
+
+    fun startBackgroundScan() {
+        // Snapshot the current on-screen scan config into prefs - the service
+        // has no ViewModel of its own to read live state from.
+        prefs.scannerBgSelectionType = state.selectionType.name
+        prefs.scannerBgSymbols = when (state.selectionType) {
+            SelectionType.SINGLE -> state.singleSymbol
+            SelectionType.MULTI -> state.multiSymbols.joinToString(",")
+            SelectionType.INDEX -> "" // live scanning doesn't support INDEX yet (matches the manual scan's own limitation)
+            SelectionType.NIFTY50, SelectionType.NIFTY100 -> ""
+        }
+        prefs.scannerBgIntervalIndex = state.selectedInterval
+        prefs.scannerBgLookbackDays = state.lookbackDays
+        prefs.scannerBgSessionOnly = state.sessionOnly
+        prefs.scannerBgThresholdFactor = state.thresholdFactor.toFloat()
+        prefs.scannerBgMinOccurrences = state.minOccurrences
+        prefs.scannerBgMinAccuracy = state.minAccuracy.toFloat()
+        prefs.scannerBgIntervalSeconds = bgIntervalSecs
+        prefs.scannerBgSeenSignals = "" // fresh start so it doesn't withhold alerts for signals already active before this run
+
+        ContextCompat.startForegroundService(context, Intent(context, PatternScanService::class.java))
+        bgRunning = true
+    }
+
+    fun stopBackgroundScan() {
+        context.stopService(Intent(context, PatternScanService::class.java))
+        bgRunning = false
+    }
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) startBackgroundScan() }
+
+    fun onBgToggle(enabled: Boolean) {
+        if (!enabled) { stopBackgroundScan(); return }
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            startBackgroundScan()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -101,6 +159,42 @@ fun ScannerScreen(viewModel: ScannerViewModel) {
         }
         if (showAdvanced) {
             AdvancedSettings(state, viewModel)
+        }
+
+        // ---- Background scanning ----
+        SectionHeader("BACKGROUND SCANNING")
+        Card(colors = CardDefaults.cardColors(containerColor = DarkCard), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Run this scan in the background", color = TextPrimary, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "Uses the Data Source, Strategy and Advanced settings above (Live source only). Notifies you when a NEW active signal shows up \u2014 not on every repeat of one still active.",
+                            color = TextMuted, style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = bgRunning,
+                        onCheckedChange = { onBgToggle(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = AccentBlue)
+                    )
+                }
+                if (bgRunning) {
+                    Text(
+                        "Scanning every ${if (bgIntervalSecs < 60) "${bgIntervalSecs}s" else "${bgIntervalSecs / 60}m"} \u2022 ongoing notification while it runs",
+                        color = TextSecondary, style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(30, 60, 120, 300).forEach { secs ->
+                        val label = if (secs < 60) "${secs}s" else "${secs / 60}m"
+                        SelectionChip(label, bgIntervalSecs == secs) {
+                            bgIntervalSecs = secs
+                            prefs.scannerBgIntervalSeconds = secs // service re-reads this every cycle, no restart needed
+                        }
+                    }
+                }
+            }
         }
 
         // ---- Run button ----

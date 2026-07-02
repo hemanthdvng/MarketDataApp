@@ -24,6 +24,14 @@ object Extensions {
         SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr)
     } catch (e: Exception) { null }
 
+    /** Parses a candle's own timestamp (format "yyyy-MM-dd'T'HH:mm:ssZ", e.g.
+     *  "2024-01-01T09:15:00+05:30") back into a Date. Used to figure out where
+     *  an incremental download should resume from. Returns null if unparseable. */
+    fun parseCandleTimestamp(ts: String): Date? = try {
+        val normalized = ts.replace(Regex("([+-]\\d{2}):(\\d{2})$"), "$1$2")
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).parse(normalized)
+    } catch (e: Exception) { null }
+
     /**
      * Splits a date range into chunks based on interval limits.
      * Returns list of (fromDate, toDate) pairs as formatted strings.

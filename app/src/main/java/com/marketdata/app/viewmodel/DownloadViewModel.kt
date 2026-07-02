@@ -6,10 +6,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.marketdata.app.data.db.AppDatabase
 import com.marketdata.app.data.db.DownloadedFileEntity
+import com.marketdata.app.data.db.SymbolSyncEntity
+import com.marketdata.app.data.db.SyncFileEntity
 import com.marketdata.app.data.models.KiteCandle
 import com.marketdata.app.data.models.SelectionType
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.data.repository.KiteRepository
+import com.marketdata.app.util.CsvReader
 import com.marketdata.app.util.CsvWriter
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
@@ -126,6 +129,22 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             updateState { copy(isDownloading = true, progress = 0f, error = null, successMessage = null) }
 
+            // --- Incremental sync: load what we already have for this interval
+            // so we only ask Kite for what's actually missing. ---
+            updateState { copy(progressText = "Checking what's already downloaded...") }
+            val coverage = try {
+                db.syncDao().getCoverage(intervalLabel).associateBy { it.symbol }
+            } catch (e: Exception) { emptyMap() }
+            val existingSyncFile = try { db.syncDao().getSyncFile(intervalLabel) } catch (e: Exception) { null }
+            val mergedData: MutableMap<String, MutableList<KiteCandle>> = existingSyncFile?.let { sf ->
+                try {
+                    CsvReader.readMultiSymbolCsv(getApplication(), Uri.parse(sf.filePath))
+                        .mapValues { it.value.toMutableList() }.toMutableMap()
+                } catch (e: Exception) {
+                    mutableMapOf() // file moved/deleted - fall back to full refetch below
+                }
+            } ?: mutableMapOf()
+
             // Resolve tokens
             updateState { copy(progressText = "Resolving instrument tokens...") }
 
@@ -153,17 +172,39 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
 
-            val allData = mutableMapOf<String, List<KiteCandle>>()
             val totalSymbols = tokenMap.size
             var symbolsDone = 0
+            var newRowsFetched = 0
+            var upToDateCount = 0
+            val updatedCoverage = mutableListOf<SymbolSyncEntity>()
 
             for ((sym, token) in tokenMap) {
-                updateState { copy(progressText = "Downloading $sym... (${ symbolsDone + 1}/$totalSymbols)") }
+                val cov = coverage[sym]
+                val priorEarliest = cov?.earliestDate?.let { Extensions.parseCandleTimestamp(it) }
+                val priorLatest = cov?.latestDate?.let { Extensions.parseCandleTimestamp(it) }
+                // Only trust the "just fetch what's new" shortcut if our existing
+                // coverage already reaches back to (or before) the requested start.
+                // Otherwise a request for an earlier fromDate than before would
+                // silently skip that earlier gap - so fall back to a full fetch.
+                val coversRequestedStart = priorEarliest != null && !priorEarliest.after(s.fromDate)
+                val effectiveFromDate = if (coversRequestedStart && priorLatest != null && priorLatest.after(s.fromDate))
+                    priorLatest else s.fromDate
+
+                if (coversRequestedStart && priorLatest != null && !priorLatest.before(s.toDate)) {
+                    upToDateCount++
+                    symbolsDone++
+                    updateState { copy(progressText = "$sym already up to date (${symbolsDone}/$totalSymbols)") }
+                    continue
+                }
+
+                updateState {
+                    copy(progressText = "Downloading $sym${if (coversRequestedStart) " (new data only)" else ""}... (${symbolsDone + 1}/$totalSymbols)")
+                }
 
                 val result = repo.fetchHistorical(
                     instrumentToken = token,
                     intervalKey = intervalKey,
-                    fromDate = s.fromDate,
+                    fromDate = effectiveFromDate,
                     toDate = s.toDate,
                     includeOI = s.includeOI,
                     onProgress = { done, total ->
@@ -172,61 +213,81 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                         updateState { copy(progress = symbolProgress + chunkProgress) }
                     }
                 )
-                result.onSuccess { candles -> allData[sym] = candles }
+                result.onSuccess { newCandles ->
+                    val bucket = mergedData.getOrPut(sym) { mutableListOf() }
+                    val seen = bucket.mapTo(HashSet()) { it.timestamp }
+                    var added = 0
+                    for (c in newCandles) {
+                        if (seen.add(c.timestamp)) {
+                            bucket.add(c)
+                            added++
+                        }
+                    }
+                    bucket.sortBy { it.timestamp }
+                    newRowsFetched += added
+                    if (bucket.isNotEmpty()) {
+                        updatedCoverage.add(SymbolSyncEntity(sym, intervalLabel, bucket.first().timestamp, bucket.last().timestamp))
+                    }
+                }
                 result.onFailure { e ->
                     updateState { copy(progressText = "Warning: failed $sym — ${e.message}") }
                 }
                 symbolsDone++
             }
 
-            if (allData.isEmpty()) {
+            if (mergedData.isEmpty()) {
                 updateState { copy(isDownloading = false, error = "No data downloaded") }
                 return@launch
             }
 
-            // Write CSV
+            // Write the full merged master file back out (previously-synced
+            // symbols untouched this run + this run's updated/new symbols).
             updateState { copy(progressText = "Writing CSV...") }
-            val fileName = CsvWriter.generateFileName(
-                symbols, intervalLabel,
-                Extensions.formatDate(s.fromDate),
-                Extensions.formatDate(s.toDate)
-            )
-
             try {
-                val docUri = androidx.documentfile.provider.DocumentFile
-                    .fromTreeUri(getApplication(), s.folderUri!!)
-                    ?.createFile("text/csv", fileName)
-                    ?.uri
-
-                if (docUri == null) {
-                    updateState { copy(isDownloading = false, error = "Failed to create file in selected folder") }
-                    return@launch
+                val docUri: Uri = if (existingSyncFile != null) {
+                    Uri.parse(existingSyncFile.filePath)
+                } else {
+                    androidx.documentfile.provider.DocumentFile
+                        .fromTreeUri(getApplication(), s.folderUri!!)
+                        ?.createFile("text/csv", CsvWriter.generateSyncFileName(intervalLabel))
+                        ?.uri
+                        ?: run {
+                            updateState { copy(isDownloading = false, error = "Failed to create file in selected folder") }
+                            return@launch
+                        }
                 }
 
                 val totalRows = CsvWriter.writeMultiSymbolCandlesToUri(
-                    getApplication(), docUri, allData, s.includeOI
+                    getApplication(), docUri, mergedData, s.includeOI
                 )
 
-                // Save to DB
-                db.downloadedFileDao().insert(
-                    DownloadedFileEntity(
-                        fileName = fileName,
-                        filePath = docUri.toString(),
-                        symbols = symbols.joinToString(","),
-                        interval = intervalLabel,
-                        fromDate = Extensions.formatDate(s.fromDate),
-                        toDate = Extensions.formatDate(s.toDate),
-                        rowCount = totalRows
+                db.syncDao().setSyncFile(SyncFileEntity(intervalLabel, docUri.toString()))
+                if (updatedCoverage.isNotEmpty()) db.syncDao().upsertCoverage(updatedCoverage)
+
+                if (db.downloadedFileDao().countByPath(docUri.toString()) == 0) {
+                    db.downloadedFileDao().insert(
+                        DownloadedFileEntity(
+                            fileName = CsvWriter.generateSyncFileName(intervalLabel),
+                            filePath = docUri.toString(),
+                            symbols = symbols.joinToString(","),
+                            interval = intervalLabel,
+                            fromDate = Extensions.formatDate(s.fromDate),
+                            toDate = Extensions.formatDate(s.toDate),
+                            rowCount = totalRows
+                        )
                     )
-                )
-
-                updateState {
-                    copy(
-                        isDownloading = false,
-                        progress = 1f,
-                        successMessage = "✅ Downloaded $totalRows rows to $fileName"
+                } else {
+                    db.downloadedFileDao().updateStatsByPath(
+                        docUri.toString(), totalRows, Extensions.formatDate(s.toDate)
                     )
                 }
+
+                val summary = buildString {
+                    append("✅ $newRowsFetched new row(s) fetched")
+                    if (upToDateCount > 0) append(", $upToDateCount symbol(s) already up to date")
+                    append(" • $totalRows total rows in ${CsvWriter.generateSyncFileName(intervalLabel)}")
+                }
+                updateState { copy(isDownloading = false, progress = 1f, successMessage = summary) }
             } catch (e: Exception) {
                 updateState { copy(isDownloading = false, error = "Write failed: ${e.message}") }
             }

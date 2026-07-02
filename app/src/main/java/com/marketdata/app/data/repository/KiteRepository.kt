@@ -54,48 +54,10 @@ class KiteRepository(private val context: Context) {
 
     suspend fun refreshInstruments(): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient.Builder()
-                .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
-                .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-            val req = Request.Builder()
-                .url("https://api.kite.trade/instruments/NSE")
-                .addHeader("X-Kite-Version", "3")
-                .addHeader("Authorization", authHeader())
-                .build()
-
-            val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) {
-                val errBody = resp.body?.string()?.take(300) ?: ""
-                return@withContext Result.failure(Exception("Failed to download instruments: HTTP ${resp.code} $errBody"))
-            }
-
-            val csv = resp.body?.string() ?: return@withContext Result.failure(Exception("Empty instruments response"))
-            val lines = csv.lines()
-            if (lines.size < 2) return@withContext Result.failure(Exception("Invalid instruments CSV (only ${lines.size} lines)"))
-
-            val entities = mutableListOf<InstrumentEntity>()
-            for (line in lines.drop(1)) { // skip header
-                if (line.isBlank()) continue
-                val cols = line.split(",")
-                if (cols.size < 12) continue
-                try {
-                    entities.add(
-                        InstrumentEntity(
-                            instrumentToken = cols[0].trim().toLong(),
-                            exchangeToken = cols[1].trim().toLongOrNull() ?: 0L,
-                            tradingSymbol = cols[2].trim(),
-                            name = cols[3].trim(),
-                            instrumentType = cols[9].trim(),
-                            segment = cols[10].trim(),
-                            exchange = cols[11].trim(),
-                            lotSize = cols[8].trim().toIntOrNull() ?: 1,
-                            tickSize = cols[7].trim().toDoubleOrNull() ?: 0.05
-                        )
-                    )
-                } catch (_: Exception) {}
-            }
+            val csv = downloadInstrumentsCsv("NSE")
+                ?: return@withContext Result.failure(Exception("Empty instruments response"))
+            val entities = parseInstrumentsCsv(csv)
+            if (entities.isEmpty()) return@withContext Result.failure(Exception("Invalid instruments CSV (no rows parsed)"))
 
             db.instrumentDao().deleteByExchange("NSE")
             db.instrumentDao().insertAll(entities)
@@ -104,6 +66,77 @@ class KiteRepository(private val context: Context) {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /** NFO = NSE's derivatives segment (stock/index options + futures). This
+     *  is a much bigger dump than the NSE equity list (every strike x expiry
+     *  x CE/PE is its own row) and is what the Option Chain screen queries
+     *  against - refreshInstruments() alone only ever covered cash equities. */
+    suspend fun refreshDerivativeInstruments(): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val csv = downloadInstrumentsCsv("NFO")
+                ?: return@withContext Result.failure(Exception("Empty instruments response"))
+            val entities = parseInstrumentsCsv(csv)
+            if (entities.isEmpty()) return@withContext Result.failure(Exception("Invalid instruments CSV (no rows parsed)"))
+
+            db.instrumentDao().deleteByExchange("NFO")
+            db.instrumentDao().insertAll(entities)
+            prefs.derivativeInstrumentsLastUpdated = System.currentTimeMillis()
+            Result.success(entities.size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun downloadInstrumentsCsv(segment: String): String? {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        val req = Request.Builder()
+            .url("https://api.kite.trade/instruments/$segment")
+            .addHeader("X-Kite-Version", "3")
+            .addHeader("Authorization", authHeader())
+            .build()
+        val resp = client.newCall(req).execute()
+        if (!resp.isSuccessful) {
+            val errBody = resp.body?.string()?.take(300) ?: ""
+            throw Exception("Failed to download $segment instruments: HTTP ${resp.code} $errBody")
+        }
+        return resp.body?.string()
+    }
+
+    /** Kite's instrument CSV column order (stable, documented format):
+     *  instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,
+     *  strike,tick_size,lot_size,instrument_type,segment,exchange */
+    private fun parseInstrumentsCsv(csv: String): List<InstrumentEntity> {
+        val lines = csv.lines()
+        if (lines.size < 2) return emptyList()
+        val entities = mutableListOf<InstrumentEntity>()
+        for (line in lines.drop(1)) { // skip header
+            if (line.isBlank()) continue
+            val cols = line.split(",")
+            if (cols.size < 12) continue
+            try {
+                entities.add(
+                    InstrumentEntity(
+                        instrumentToken = cols[0].trim().toLong(),
+                        exchangeToken = cols[1].trim().toLongOrNull() ?: 0L,
+                        tradingSymbol = cols[2].trim(),
+                        name = cols[3].trim(),
+                        instrumentType = cols[9].trim(),
+                        segment = cols[10].trim(),
+                        exchange = cols[11].trim(),
+                        lotSize = cols[8].trim().toIntOrNull() ?: 1,
+                        tickSize = cols[7].trim().toDoubleOrNull() ?: 0.05,
+                        expiry = cols[5].trim(),
+                        strike = cols[6].trim().toDoubleOrNull() ?: 0.0
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+        return entities
     }
 
     suspend fun getTokenForSymbol(symbol: String): Long? {
@@ -118,6 +151,36 @@ class KiteRepository(private val context: Context) {
 
     suspend fun searchSymbols(query: String): List<InstrumentEntity> =
         db.instrumentDao().search("%${query.uppercase()}%")
+
+    // ---- Option chain ----
+
+    suspend fun getExpiriesForUnderlying(underlying: String): List<String> =
+        db.instrumentDao().getExpiriesForUnderlying(underlying.uppercase())
+
+    suspend fun getOptionChainInstruments(underlying: String, expiry: String): List<InstrumentEntity> =
+        db.instrumentDao().getOptionsForExpiry(underlying.uppercase(), expiry)
+
+    fun derivativeInstrumentsNeedRefresh(): Boolean {
+        val last = prefs.derivativeInstrumentsLastUpdated
+        val oneDayMs = 24 * 60 * 60 * 1000L
+        return System.currentTimeMillis() - last > oneDayMs
+    }
+
+    /** Like fetchQuotes(), but takes fully-qualified "EXCHANGE:TRADINGSYMBOL"
+     *  identifiers directly (so it works for NFO options, not just NSE cash)
+     *  and returns the raw QuoteData (has bid/ask depth, OI) instead of the
+     *  simplified LiveQuoteDisplay used elsewhere. */
+    suspend fun fetchQuotesRaw(instruments: List<String>): Result<Map<String, QuoteData>> = try {
+        val response = api.getQuote(auth = authHeader(), instruments = instruments)
+        if (response.isSuccessful && response.body()?.status == "success") {
+            Result.success(response.body()!!.data ?: emptyMap())
+        } else {
+            val errBody = response.errorBody()?.string()?.take(300) ?: response.message()
+            Result.failure(Exception("Quote fetch failed: HTTP ${response.code()} $errBody"))
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
 
     // ---- Historical Data ----
 

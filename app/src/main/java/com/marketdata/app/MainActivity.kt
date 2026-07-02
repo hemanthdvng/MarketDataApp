@@ -28,11 +28,12 @@ sealed class Screen(val route: String, val label: String, val icon: androidx.com
     object Download : Screen("download", "Download", Icons.Default.Download)
     object Live : Screen("live", "Live", Icons.Default.ShowChart)
     object Scanner : Screen("scanner", "Scanner", Icons.Default.TrendingUp)
+    object OptionChain : Screen("option_chain", "Options", Icons.Default.TableChart)
     object Agent : Screen("agent", "Agent", Icons.Default.SmartToy)
     object Files : Screen("files", "Files", Icons.Default.Folder)
 }
 
-val bottomNavItems = listOf(Screen.Auth, Screen.Download, Screen.Live, Screen.Scanner, Screen.Agent, Screen.Files)
+val bottomNavItems = listOf(Screen.Auth, Screen.Download, Screen.Live, Screen.Scanner, Screen.OptionChain, Screen.Agent, Screen.Files)
 
 class MainActivity : ComponentActivity() {
 
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private val agentViewModel: AgentViewModel by viewModels()
     private val filesViewModel: FilesViewModel by viewModels()
     private val scannerViewModel: ScannerViewModel by viewModels()
+    private val optionChainViewModel: OptionChainViewModel by viewModels()
 
     private val kiteAuthLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -65,6 +67,7 @@ class MainActivity : ComponentActivity() {
                     agentViewModel = agentViewModel,
                     filesViewModel = filesViewModel,
                     scannerViewModel = scannerViewModel,
+                    optionChainViewModel = optionChainViewModel,
                     onLoginClick = { startKiteLogin() }
                 )
             }
@@ -88,6 +91,7 @@ fun MainScreen(
     agentViewModel: AgentViewModel,
     filesViewModel: FilesViewModel,
     scannerViewModel: ScannerViewModel,
+    optionChainViewModel: OptionChainViewModel,
     onLoginClick: () -> Unit
 ) {
     val navController = rememberNavController()
@@ -140,6 +144,9 @@ fun MainScreen(
             }
             composable(Screen.Scanner.route) {
                 ScannerScreen(viewModel = scannerViewModel)
+            }
+            composable(Screen.OptionChain.route) {
+                OptionChainScreen(viewModel = optionChainViewModel)
             }
             composable(Screen.Agent.route) {
                 AgentScreen(viewModel = agentViewModel)

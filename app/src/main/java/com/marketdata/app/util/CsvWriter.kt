@@ -105,6 +105,12 @@ object CsvWriter {
         return "${symbolPart}_${interval}_${fromDate}_${toDate}_${ts}.csv"
     }
 
+    /** Stable (non-timestamped) filename for the growing "everything synced at
+     *  this interval" master file used by incremental downloads. Deliberately
+     *  has no date/timestamp in the name, since it's rewritten in place rather
+     *  than replaced each time. */
+    fun generateSyncFileName(interval: String): String = "synced_${interval}.csv"
+
     fun generateQuoteFileName(): String {
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         return "quotes_$ts.csv"

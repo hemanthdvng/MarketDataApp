@@ -1,5 +1,7 @@
 package com.marketdata.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +21,7 @@ import com.marketdata.app.data.models.AgentMessage
 import com.marketdata.app.data.models.AiModelOption
 import com.marketdata.app.data.models.AiModels
 import com.marketdata.app.data.models.AiProvider
+import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AgentViewModel
 import kotlinx.coroutines.launch
@@ -29,6 +32,10 @@ fun AgentScreen(viewModel: AgentViewModel) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showSettings by remember { mutableStateOf(false) }
+
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.attachFile(it) } }
 
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
@@ -120,6 +127,20 @@ fun AgentScreen(viewModel: AgentViewModel) {
                         onValueChange = { viewModel.setContextSymbols(it) },
                         placeholder = "NIFTY 50,RELIANCE,TCS"
                     )
+                    Spacer(Modifier.height(6.dp))
+                    Row {
+                        OutlinedButton(
+                            onClick = { viewModel.useNifty50Context() },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) { Text("NIFTY 50", style = MaterialTheme.typography.labelSmall) }
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = { viewModel.useNifty100Context() },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) { Text("NIFTY 100", style = MaterialTheme.typography.labelSmall) }
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
@@ -132,6 +153,48 @@ fun AgentScreen(viewModel: AgentViewModel) {
                     TextButton(onClick = { viewModel.refreshQuotes() }) {
                         Text("🔄 Refresh quotes now", color = AccentBlue, style = MaterialTheme.typography.bodySmall)
                     }
+
+                    if (state.selectedModel.provider == AiProvider.GEMINI) {
+                        Divider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                        Text("Thinking mode (Gemini):", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(6.dp))
+                        Row {
+                            ThinkingLevel.entries.forEach { level ->
+                                val selected = state.thinkingLevel == level
+                                OutlinedButton(
+                                    onClick = { viewModel.setThinkingLevel(level) },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = if (selected) Color.White else AccentBlue,
+                                        containerColor = if (selected) AccentBlue else Color.Transparent
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) { Text(level.label, style = MaterialTheme.typography.labelSmall) }
+                            }
+                        }
+                        Text(
+                            "Higher = deeper reasoning but slower and more tokens.",
+                            color = TextMuted, style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    Divider(color = DarkBorder, modifier = Modifier.padding(vertical = 8.dp))
+                    Text("Agent instructions (optional, saved on this device):", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = state.customInstructions,
+                        onValueChange = { viewModel.setCustomInstructions(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("e.g. Focus on options strategies. Keep answers under 100 words.", color = TextMuted, style = MaterialTheme.typography.bodySmall) },
+                        minLines = 2,
+                        maxLines = 5,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AccentBlue,
+                            unfocusedBorderColor = DarkBorder,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
                 }
             }
         }
@@ -179,11 +242,43 @@ fun AgentScreen(viewModel: AgentViewModel) {
             }
         }
 
+        // Pending attachment preview
+        val pendingBinary = state.pendingBinaryAttachment
+        val pendingText = state.pendingTextAttachment
+        if (pendingBinary != null || pendingText != null || state.isReadingFile) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (state.isReadingFile) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = AccentBlue)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Reading file...", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Icon(Icons.Default.AttachFile, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        pendingBinary?.displayName ?: pendingText?.displayName ?: "",
+                        color = TextPrimary, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { viewModel.clearPendingAttachment() }, modifier = Modifier.size(20.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove", tint = AccentRed, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
         // Input bar
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.Bottom
         ) {
+            IconButton(onClick = {
+                filePicker.launch(arrayOf("image/*", "text/csv", "text/plain", "application/pdf"))
+            }) {
+                Icon(Icons.Default.AttachFile, contentDescription = "Attach file", tint = TextSecondary)
+            }
             OutlinedTextField(
                 value = state.inputText,
                 onValueChange = { viewModel.setInputText(it) },
@@ -203,7 +298,8 @@ fun AgentScreen(viewModel: AgentViewModel) {
                 modifier = Modifier
                     .size(48.dp)
                     .background(AccentBlue, RoundedCornerShape(12.dp)),
-                enabled = !state.isLoading && state.inputText.isNotBlank()
+                enabled = !state.isLoading &&
+                    (state.inputText.isNotBlank() || pendingBinary != null || pendingText != null)
             ) {
                 Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.White)
             }
@@ -252,6 +348,13 @@ fun MessageBubble(msg: AgentMessage) {
                     Text("🤖 AGENT", color = AccentBlue, style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
+                }
+                msg.attachment?.let { att ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                        Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextMuted, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(att.displayName, color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
                 Text(msg.content, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
             }

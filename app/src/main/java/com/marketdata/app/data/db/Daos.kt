@@ -25,6 +25,15 @@ interface InstrumentDao {
 
     @Query("SELECT * FROM instruments WHERE tradingSymbol LIKE :query AND exchange = 'NSE' LIMIT 20")
     suspend fun search(query: String): List<InstrumentEntity>
+
+    @Query("SELECT DISTINCT expiry FROM instruments WHERE name = :underlying AND exchange = 'NFO' AND (instrumentType = 'CE' OR instrumentType = 'PE') AND expiry != '' ORDER BY expiry ASC")
+    suspend fun getExpiriesForUnderlying(underlying: String): List<String>
+
+    @Query("SELECT * FROM instruments WHERE name = :underlying AND exchange = 'NFO' AND expiry = :expiry AND (instrumentType = 'CE' OR instrumentType = 'PE') ORDER BY strike ASC")
+    suspend fun getOptionsForExpiry(underlying: String, expiry: String): List<InstrumentEntity>
+
+    @Query("SELECT COUNT(*) FROM instruments WHERE exchange = 'NFO'")
+    suspend fun countNfo(): Int
 }
 
 @Dao
@@ -40,4 +49,25 @@ interface DownloadedFileDao {
 
     @Query("DELETE FROM downloaded_files WHERE id = :id")
     suspend fun deleteById(id: Int)
+
+    @Query("UPDATE downloaded_files SET rowCount = :rowCount, toDate = :toDate, downloadedAt = :downloadedAt WHERE filePath = :filePath")
+    suspend fun updateStatsByPath(filePath: String, rowCount: Int, toDate: String, downloadedAt: Long = System.currentTimeMillis())
+
+    @Query("SELECT COUNT(*) FROM downloaded_files WHERE filePath = :filePath")
+    suspend fun countByPath(filePath: String): Int
+}
+
+@Dao
+interface SyncDao {
+    @Query("SELECT * FROM symbol_sync WHERE interval = :interval")
+    suspend fun getCoverage(interval: String): List<SymbolSyncEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCoverage(rows: List<SymbolSyncEntity>)
+
+    @Query("SELECT * FROM sync_file WHERE interval = :interval LIMIT 1")
+    suspend fun getSyncFile(interval: String): SyncFileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun setSyncFile(entity: SyncFileEntity)
 }
