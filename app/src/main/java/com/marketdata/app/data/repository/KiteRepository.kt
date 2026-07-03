@@ -154,6 +154,37 @@ class KiteRepository(private val context: Context) {
 
     // ---- Option chain ----
 
+    /** Every underlying (index + stock) that currently has listed F&O options,
+     *  as the tradingsymbol-prefix CODE that getExpiriesForUnderlying/
+     *  getOptionsForExpiry actually match against - not the raw `name` field,
+     *  which for the handful of index underlyings is a display name instead
+     *  (e.g. "NIFTY BANK") rather than the code used in tradingsymbols
+     *  ("BANKNIFTY..."). Used for "All F&O" bulk selection and the option
+     *  chain search-as-you-type list. Requires derivative instruments to
+     *  already be loaded (see refreshDerivativeInstruments). */
+    suspend fun getAllFnoUnderlyings(): List<String> {
+        val names = db.instrumentDao().getDistinctFnoNames()
+        // Known index display-name -> tradingsymbol-code mapping (inverse of
+        // OPTION_CHAIN_SPOT_SYMBOL in the viewmodel, kept local here to avoid
+        // a UI->data layer dependency).
+        val indexNameToCode = mapOf(
+            "NIFTY" to "NIFTY",
+            "NIFTY BANK" to "BANKNIFTY",
+            "NIFTY FIN SERVICE" to "FINNIFTY",
+            "NIFTY MID SELECT" to "MIDCPNIFTY"
+        )
+        val codes = LinkedHashSet<String>()
+        for (n in names) {
+            codes.add(indexNameToCode[n] ?: n)
+        }
+        return codes.sorted()
+    }
+
+    /** Every plain NSE-listed equity/ETF (not just Nifty 50/100) - the full
+     *  cash-market universe, for "All Instruments" download/scan/quote
+     *  options. Requires refreshInstruments() to have run at least once. */
+    suspend fun getAllNseEquitySymbols(): List<String> = db.instrumentDao().getAllNseEquitySymbols()
+
     suspend fun getExpiriesForUnderlying(underlying: String): List<String> =
         db.instrumentDao().getExpiriesForUnderlying(underlying.uppercase())
 
@@ -273,6 +304,29 @@ class KiteRepository(private val context: Context) {
             val errBody = response.errorBody()?.string()?.take(300) ?: response.message()
             Result.failure(Exception("Quote fetch failed: HTTP ${response.code()} $errBody"))
         }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    /** Kite's quote endpoint has an undocumented-but-real cap on instruments
+     *  per request (well under a few thousand) - fine for Nifty 50/100 (<=100
+     *  symbols) via fetchQuotes() above, but "All Instruments" can be 1500-2000+
+     *  NSE equities, so that needs chunking + a delay between batches to stay
+     *  under the rate limit. Partial failures are skipped rather than failing
+     *  the whole batch, since one bad symbol shouldn't sink the other 1900. */
+    suspend fun fetchQuotesBatched(
+        symbols: List<String>,
+        batchSize: Int = 400,
+        onProgress: suspend (Int, Int) -> Unit = { _, _ -> }
+    ): Result<List<LiveQuoteDisplay>> = try {
+        val all = mutableListOf<LiveQuoteDisplay>()
+        val chunks = symbols.chunked(batchSize)
+        for ((i, chunk) in chunks.withIndex()) {
+            fetchQuotes(chunk).onSuccess { all.addAll(it) }
+            onProgress(i + 1, chunks.size)
+            if (i < chunks.lastIndex) delay(350)
+        }
+        Result.success(all)
     } catch (e: Exception) {
         Result.failure(e)
     }

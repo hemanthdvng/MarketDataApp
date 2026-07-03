@@ -102,7 +102,7 @@ data class LiveQuoteDisplay(
     val oi: Double
 )
 
-enum class SelectionType { SINGLE, MULTI, INDEX, NIFTY50, NIFTY100 }
+enum class SelectionType { SINGLE, MULTI, INDEX, NIFTY50, NIFTY100, ALL_NSE }
 enum class AiProvider { CLAUDE, GEMINI }
 
 /**

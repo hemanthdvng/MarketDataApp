@@ -7,6 +7,8 @@ import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.data.prefs.SecurePrefs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -38,7 +40,8 @@ class AgentRepository(private val prefs: SecurePrefs) {
     private fun buildSystemPrompt(
         quotes: List<LiveQuoteDisplay>?,
         csvSummary: String?,
-        customInstructions: String? = null
+        customInstructions: String? = null,
+        optionChainSummary: String? = null
     ): String {
         val sb = StringBuilder()
         sb.append("""
@@ -56,6 +59,12 @@ You have access to the following data:
                 sb.append("${q.symbol} | ${q.ltp} | ${q.open} | ${q.high} | ${q.low} | " +
                     "${q.close} | ${String.format("%.2f", q.changePct)}% | ${q.volume} | ${q.oi}\n")
             }
+        }
+
+        if (!optionChainSummary.isNullOrEmpty()) {
+            sb.append("\n\nCURRENT OPTION CHAIN DATA:\n")
+            sb.append(optionChainSummary)
+            sb.append("\n")
         }
 
         if (!csvSummary.isNullOrEmpty()) {
@@ -90,13 +99,14 @@ Format numbers clearly. Use INR for prices.
         messages: List<AgentMessage>,
         liveQuotes: List<LiveQuoteDisplay>? = null,
         csvSummary: String? = null,
-        customInstructions: String? = null
-    ): Result<String> {
-        return try {
+        customInstructions: String? = null,
+        optionChainSummary: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
             val apiKey = prefs.claudeApiKey
-            if (apiKey.isEmpty()) return Result.failure(Exception("Claude API key not set"))
+            if (apiKey.isEmpty()) return@withContext Result.failure(Exception("Claude API key not set"))
 
-            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary, customInstructions)
+            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary, customInstructions, optionChainSummary)
 
             val messagesJson = JSONArray()
             for (msg in messages) {
@@ -155,7 +165,7 @@ Format numbers clearly. Use INR for prices.
             val responseBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return Result.failure(Exception("Claude API error ${response.code}: $responseBody"))
+                return@withContext Result.failure(Exception("Claude API error ${response.code}: $responseBody"))
             }
 
             val json = JSONObject(responseBody)
@@ -174,13 +184,14 @@ Format numbers clearly. Use INR for prices.
         liveQuotes: List<LiveQuoteDisplay>? = null,
         csvSummary: String? = null,
         customInstructions: String? = null,
-        thinkingLevel: ThinkingLevel = ThinkingLevel.MEDIUM
-    ): Result<String> {
-        return try {
+        thinkingLevel: ThinkingLevel = ThinkingLevel.MEDIUM,
+        optionChainSummary: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
             val apiKey = prefs.geminiApiKey
-            if (apiKey.isEmpty()) return Result.failure(Exception("Gemini API key not set"))
+            if (apiKey.isEmpty()) return@withContext Result.failure(Exception("Gemini API key not set"))
 
-            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary, customInstructions)
+            val systemPrompt = buildSystemPrompt(liveQuotes, csvSummary, customInstructions, optionChainSummary)
 
             val contents = JSONArray()
 
@@ -255,7 +266,7 @@ Format numbers clearly. Use INR for prices.
             val responseBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return Result.failure(Exception("Gemini API error ${response.code}: $responseBody"))
+                return@withContext Result.failure(Exception("Gemini API error ${response.code}: $responseBody"))
             }
 
             val json = JSONObject(responseBody)
@@ -266,12 +277,12 @@ Format numbers clearly. Use INR for prices.
             val promptFeedback = json.optJSONObject("promptFeedback")
             val blockReason = promptFeedback?.optString("blockReason", "")
             if (!blockReason.isNullOrEmpty()) {
-                return Result.failure(Exception("Gemini blocked the request ($blockReason). Try rephrasing."))
+                return@withContext Result.failure(Exception("Gemini blocked the request ($blockReason). Try rephrasing."))
             }
 
             val candidates = json.optJSONArray("candidates")
             if (candidates == null || candidates.length() == 0) {
-                return Result.failure(Exception("Gemini returned no response. Raw: ${responseBody.take(300)}"))
+                return@withContext Result.failure(Exception("Gemini returned no response. Raw: ${responseBody.take(300)}"))
             }
 
             val candidate = candidates.getJSONObject(0)
@@ -292,7 +303,7 @@ Format numbers clearly. Use INR for prices.
 
             if (text.isEmpty()) {
                 val reasonMsg = if (finishReason.isNotEmpty()) " (finishReason: $finishReason)" else ""
-                return Result.failure(Exception("Gemini returned an empty response$reasonMsg. Try again."))
+                return@withContext Result.failure(Exception("Gemini returned an empty response$reasonMsg. Try again."))
             }
 
             Result.success(text.toString())
@@ -309,9 +320,10 @@ Format numbers clearly. Use INR for prices.
         liveQuotes: List<LiveQuoteDisplay>? = null,
         csvSummary: String? = null,
         customInstructions: String? = null,
-        thinkingLevel: ThinkingLevel = ThinkingLevel.MEDIUM
+        thinkingLevel: ThinkingLevel = ThinkingLevel.MEDIUM,
+        optionChainSummary: String? = null
     ): Result<String> = when (model.provider) {
-        AiProvider.CLAUDE -> callClaude(model.id, messages, liveQuotes, csvSummary, customInstructions)
-        AiProvider.GEMINI -> callGemini(model.id, messages, liveQuotes, csvSummary, customInstructions, thinkingLevel)
+        AiProvider.CLAUDE -> callClaude(model.id, messages, liveQuotes, csvSummary, customInstructions, optionChainSummary)
+        AiProvider.GEMINI -> callGemini(model.id, messages, liveQuotes, csvSummary, customInstructions, thinkingLevel, optionChainSummary)
     }
 }

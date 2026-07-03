@@ -149,7 +149,7 @@ fun MainScreen(
                 OptionChainScreen(viewModel = optionChainViewModel)
             }
             composable(Screen.Agent.route) {
-                AgentScreen(viewModel = agentViewModel)
+                AgentScreen(viewModel = agentViewModel, optionChainViewModel = optionChainViewModel)
             }
             composable(Screen.Files.route) {
                 FilesScreen(viewModel = filesViewModel)

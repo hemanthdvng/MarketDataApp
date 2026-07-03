@@ -10,6 +10,7 @@ import com.marketdata.app.data.models.AgentMessage
 import com.marketdata.app.data.models.AiModelOption
 import com.marketdata.app.data.models.AiModels
 import com.marketdata.app.data.models.LiveQuoteDisplay
+import com.marketdata.app.data.models.OptionChainRow
 import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.data.repository.AgentRepository
@@ -40,7 +41,14 @@ data class AgentState(
     val customInstructions: String = "",
     val pendingBinaryAttachment: AgentAttachment? = null,
     val pendingTextAttachment: PendingTextAttachment? = null,
-    val isReadingFile: Boolean = false
+    val isReadingFile: Boolean = false,
+    // Option chain context (off by default - the chain table can be large,
+    // so this is opt-in rather than auto-included like live quotes).
+    val includeOptionChain: Boolean = false,
+    val optionChainRows: List<OptionChainRow> = emptyList(),
+    val optionChainUnderlying: String = "",
+    val optionChainExpiry: String = "",
+    val optionChainSpot: Double = 0.0
 )
 
 class AgentViewModel(app: Application) : AndroidViewModel(app) {
@@ -58,6 +66,17 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     fun useNifty50Context() = update { copy(symbolsForContext = NiftySymbols.NIFTY_50.joinToString(",")) }
     fun useNifty100Context() = update { copy(symbolsForContext = NiftySymbols.NIFTY_100.joinToString(",")) }
     fun setThinkingLevel(l: ThinkingLevel) = update { copy(thinkingLevel = l) }
+    fun setIncludeOptionChain(v: Boolean) = update { copy(includeOptionChain = v) }
+
+    /** Called from AgentScreen (via LaunchedEffect on the Options tab's state)
+     *  to keep a snapshot of whatever chain is currently loaded there, so it
+     *  can be folded into the system prompt when includeOptionChain is on.
+     *  Kept as a plain snapshot rather than a live reference to the other
+     *  ViewModel, since AgentViewModel and OptionChainViewModel are
+     *  independently scoped and shouldn't hold references to each other. */
+    fun setOptionChainContext(rows: List<OptionChainRow>, underlying: String, expiry: String, spot: Double) {
+        update { copy(optionChainRows = rows, optionChainUnderlying = underlying, optionChainExpiry = expiry, optionChainSpot = spot) }
+    }
     fun setCustomInstructions(s: String) {
         prefs.agentCustomInstructions = s
         update { copy(customInstructions = s) }
@@ -186,12 +205,15 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
 
+            val optionChainSummary = if (_state.value.includeOptionChain) buildOptionChainSummary(_state.value) else null
+
             val result = agentRepo.call(
                 model = _state.value.selectedModel,
                 messages = _state.value.messages,
                 liveQuotes = quotes.ifEmpty { null },
                 customInstructions = _state.value.customInstructions.ifBlank { null },
-                thinkingLevel = _state.value.thinkingLevel
+                thinkingLevel = _state.value.thinkingLevel,
+                optionChainSummary = optionChainSummary
             )
 
             result.fold(
@@ -220,5 +242,22 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun update(block: AgentState.() -> AgentState) {
         _state.value = _state.value.block()
+    }
+
+    /** Formats the currently-loaded option chain (from the Options tab) as
+     *  compact text for the AI's system prompt. Kept plain/tabular rather
+     *  than JSON since that's both fewer tokens and easier for the model to
+     *  read directly. Returns null if nothing's loaded yet, so the caller
+     *  doesn't inject an empty "OPTION CHAIN DATA:" section for no reason. */
+    private fun buildOptionChainSummary(s: AgentState): String? {
+        if (s.optionChainRows.isEmpty()) return null
+        val sb = StringBuilder()
+        sb.append("Underlying: ${s.optionChainUnderlying}, Expiry: ${s.optionChainExpiry}, Spot: \u20b9${"%.2f".format(s.optionChainSpot)}\n")
+        sb.append("Strike | CE_LTP | CE_OI | CE_Vol | PE_LTP | PE_OI | PE_Vol\n")
+        for (r in s.optionChainRows) {
+            val atmTag = if (r.isAtm) " (ATM)" else ""
+            sb.append("${"%.0f".format(r.strike)}$atmTag | ${r.ceLtp} | ${r.ceOi} | ${r.ceVolume} | ${r.peLtp} | ${r.peOi} | ${r.peVolume}\n")
+        }
+        return sb.toString()
     }
 }

@@ -41,6 +41,22 @@ interface InstrumentDao {
 
     @Query("SELECT COUNT(*) FROM instruments WHERE exchange = 'NFO'")
     suspend fun countNfo(): Int
+
+    // `name` is the most reliable underlying identifier available in Kite's dump:
+    // for stock F&O it's identical to the equity tradingsymbol used for matching
+    // (see getExpiriesForUnderlying's comment), and for indices it's the display
+    // name (e.g. "NIFTY BANK") which the caller maps back to its tradingsymbol
+    // code separately. Either way, this gives the full live set of underlyings
+    // that currently have listed options - used to power "All F&O" bulk selection
+    // and the option-chain search-as-you-type suggestions.
+    @Query("SELECT DISTINCT name FROM instruments WHERE exchange = 'NFO' AND (instrumentType = 'CE' OR instrumentType = 'PE') AND name != '' ORDER BY name ASC")
+    suspend fun getDistinctFnoNames(): List<String>
+
+    // segment = 'NSE' (as opposed to 'INDICES') is what actually isolates plain
+    // tradeable equities/ETFs in Kite's dump - exchange alone isn't enough since
+    // NIFTY/BANKNIFTY etc. index quotes also live under exchange='NSE'.
+    @Query("SELECT DISTINCT tradingSymbol FROM instruments WHERE exchange = 'NSE' AND segment = 'NSE' ORDER BY tradingSymbol ASC")
+    suspend fun getAllNseEquitySymbols(): List<String>
 }
 
 @Dao

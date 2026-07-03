@@ -24,10 +24,11 @@ import com.marketdata.app.data.models.AiProvider
 import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AgentViewModel
+import com.marketdata.app.viewmodel.OptionChainViewModel
 import kotlinx.coroutines.launch
 
 @Composable
-fun AgentScreen(viewModel: AgentViewModel) {
+fun AgentScreen(viewModel: AgentViewModel, optionChainViewModel: OptionChainViewModel? = null) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -40,6 +41,19 @@ fun AgentScreen(viewModel: AgentViewModel) {
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
             scope.launch { listState.animateScrollToItem(state.messages.size - 1) }
+        }
+    }
+
+    // Keep AgentViewModel's snapshot of the option chain in sync with
+    // whatever's currently loaded on the Options tab, whenever the toggle is
+    // on. Only reads from OptionChainViewModel - never writes to it - so the
+    // two screens stay independent otherwise.
+    if (optionChainViewModel != null) {
+        val ocState by optionChainViewModel.state.collectAsState()
+        LaunchedEffect(state.includeOptionChain, ocState.rows, ocState.underlying, ocState.selectedExpiry) {
+            if (state.includeOptionChain) {
+                viewModel.setOptionChainContext(ocState.rows, ocState.underlying, ocState.selectedExpiry, ocState.spotPrice)
+            }
         }
     }
 
@@ -152,6 +166,26 @@ fun AgentScreen(viewModel: AgentViewModel) {
                     }
                     TextButton(onClick = { viewModel.refreshQuotes() }) {
                         Text("🔄 Refresh quotes now", color = AccentBlue, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    if (optionChainViewModel != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = state.includeOptionChain,
+                                onCheckedChange = { viewModel.setIncludeOptionChain(it) },
+                                colors = CheckboxDefaults.colors(checkedColor = AccentBlue)
+                            )
+                            Text("Include option chain data (from Options tab)", color = TextPrimary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (state.includeOptionChain) {
+                            Text(
+                                if (state.optionChainRows.isNotEmpty())
+                                    "Using ${state.optionChainUnderlying} ${state.optionChainExpiry} \u2022 ${state.optionChainRows.size} strikes"
+                                else "No chain loaded yet - open the Options tab and load one",
+                                color = TextMuted, style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
 
                     if (state.selectedModel.provider == AiProvider.GEMINI) {

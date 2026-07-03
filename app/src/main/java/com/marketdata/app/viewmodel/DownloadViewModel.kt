@@ -38,7 +38,11 @@ data class DownloadState(
     val error: String? = null,
     val successMessage: String? = null,
     val symbolSearchQuery: String = "",
-    val symbolSearchResults: List<String> = emptyList()
+    val symbolSearchResults: List<String> = emptyList(),
+    // "All Instruments" (ALL_NSE) - the full NSE equity universe, loaded on
+    // demand since it can be 2000+ symbols and isn't needed until picked.
+    val allNseSymbols: List<String> = emptyList(),
+    val isLoadingAllNseSymbols: Boolean = false
 )
 
 class DownloadViewModel(app: Application) : AndroidViewModel(app) {
@@ -49,8 +53,20 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(DownloadState())
     val state = _state.asStateFlow()
 
-    fun setSelectionType(type: SelectionType) = updateState {
-        copy(selectionType = type, symbolSearchQuery = "", symbolSearchResults = emptyList())
+    fun setSelectionType(type: SelectionType) {
+        updateState { copy(selectionType = type, symbolSearchQuery = "", symbolSearchResults = emptyList()) }
+        if (type == SelectionType.ALL_NSE && _state.value.allNseSymbols.isEmpty()) {
+            viewModelScope.launch {
+                updateState { copy(isLoadingAllNseSymbols = true) }
+                try {
+                    if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                    val syms = repo.getAllNseEquitySymbols()
+                    updateState { copy(allNseSymbols = syms, isLoadingAllNseSymbols = false) }
+                } catch (e: Exception) {
+                    updateState { copy(isLoadingAllNseSymbols = false, error = "Failed to load instrument list: ${e.message}") }
+                }
+            }
+        }
     }
     fun setSelectedIndex(idx: String) = updateState { copy(selectedIndex = idx) }
     fun setInterval(i: Int) = updateState { copy(selectedInterval = i) }
@@ -300,6 +316,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
         SelectionType.INDEX -> listOf(s.selectedIndex)
         SelectionType.NIFTY50 -> NiftySymbols.NIFTY_50
         SelectionType.NIFTY100 -> NiftySymbols.NIFTY_100
+        SelectionType.ALL_NSE -> s.allNseSymbols
     }
 
     private fun updateState(block: DownloadState.() -> DownloadState) {

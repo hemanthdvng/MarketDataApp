@@ -28,7 +28,9 @@ data class LiveQuoteState(
     val showNifty50: Boolean = false,
     val autoRefreshEnabled: Boolean = false,
     val refreshIntervalSeconds: Int = 10,
-    val lastUpdatedAt: Long = 0L
+    val lastUpdatedAt: Long = 0L,
+    val isLoadingAllInstruments: Boolean = false,
+    val allInstrumentsProgress: String = ""
 )
 
 class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
@@ -48,6 +50,37 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
     fun loadNifty100() {
         update { copy(symbolInput = NiftySymbols.NIFTY_100.joinToString(","), showNifty50 = true) }
         fetchQuotes()
+    }
+
+    /** Loads every NSE-listed equity's live quote, not just Nifty 50/100.
+     *  Uses fetchQuotesBatched() since 1500-2000+ symbols can't go in one
+     *  request the way Nifty 100 can - runs as its own flow (rather than
+     *  reusing fetchQuotesOnce/symbolInput) so progress can be shown while
+     *  it works through the batches. */
+    fun loadAllInstruments() {
+        viewModelScope.launch {
+            update { copy(isLoadingAllInstruments = true, error = null, isLoading = true) }
+            try {
+                if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                val symbols = repo.getAllNseEquitySymbols()
+                if (symbols.isEmpty()) {
+                    update { copy(isLoadingAllInstruments = false, isLoading = false, error = "No instruments found - try refreshing instruments") }
+                    return@launch
+                }
+                update { copy(symbolInput = symbols.joinToString(","), showNifty50 = true) }
+                val result = repo.fetchQuotesBatched(symbols) { done, total ->
+                    update { copy(allInstrumentsProgress = "Fetching batch $done/$total...") }
+                }
+                result.onSuccess { q ->
+                    update { copy(quotes = q, isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", lastUpdatedAt = System.currentTimeMillis()) }
+                }
+                result.onFailure { e ->
+                    update { copy(isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", error = e.message ?: "Failed to fetch quotes") }
+                }
+            } catch (e: Exception) {
+                update { copy(isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", error = e.message ?: "Failed to load instrument list") }
+            }
+        }
     }
 
     fun fetchQuotes() {

@@ -329,6 +329,7 @@ private fun LiveSourcePicker(viewModel: ScannerViewModel) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SelectionChip("Nifty 50", state.selectionType == SelectionType.NIFTY50) { viewModel.setSelectionType(SelectionType.NIFTY50) }
         SelectionChip("Nifty 100", state.selectionType == SelectionType.NIFTY100) { viewModel.setSelectionType(SelectionType.NIFTY100) }
+        SelectionChip("All Instruments", state.selectionType == SelectionType.ALL_NSE) { viewModel.setSelectionType(SelectionType.ALL_NSE) }
     }
 
     when (state.selectionType) {
@@ -375,6 +376,13 @@ private fun LiveSourcePicker(viewModel: ScannerViewModel) {
         }
         SelectionType.NIFTY50 -> InfoCard("\ud83d\udcca ${NiftySymbols.NIFTY_50.size} stocks will be scanned (Nifty 50)")
         SelectionType.NIFTY100 -> InfoCard("\ud83d\udcca ${NiftySymbols.NIFTY_100.size} stocks will be scanned (Nifty 100) \u2014 this fetches live history for every symbol, so it can take a while.")
+        SelectionType.ALL_NSE -> {
+            if (state.isLoadingAllNseSymbols) {
+                Text("Loading full instrument list...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+            } else if (state.allNseSymbols.isNotEmpty()) {
+                InfoCard("\u26a0\ufe0f ${state.allNseSymbols.size} instruments will be scanned (entire NSE equity list) \u2014 this fetches live history for every symbol one at a time, so it will take a long while and hit Kite's rate limits more.")
+            }
+        }
         SelectionType.INDEX -> {}
     }
 

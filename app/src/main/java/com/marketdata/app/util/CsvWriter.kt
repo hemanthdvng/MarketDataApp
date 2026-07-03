@@ -125,6 +125,46 @@ object CsvWriter {
         return rows.size
     }
 
+    /** One row per (underlying, strike): a bulk download's combined chain
+     *  across many underlyings (Nifty 50 / Nifty 100 / All F&O), each tagged
+     *  with its own expiry and spot price since those can differ per symbol
+     *  when the requested expiry date doesn't exist for that underlying and
+     *  the nearest available one was substituted (see OptionChainViewModel's
+     *  bulk download - it always uses the expiry actually fetched, not just
+     *  the one the user picked). */
+    fun writeBulkOptionChainToUri(
+        context: Context,
+        uri: Uri,
+        entries: List<Pair<Triple<String, String, Double>, List<OptionChainRow>>> // (underlying, expiry, spot) -> rows
+    ): Int {
+        var totalRows = 0
+        context.contentResolver.openOutputStream(uri)?.use { os ->
+            BufferedWriter(OutputStreamWriter(os)).use { writer ->
+                writer.write("Underlying,Expiry,SpotPrice,Strike,IsATM,CE_Symbol,CE_LTP,CE_Bid,CE_Ask,CE_OI,CE_Volume,PE_Symbol,PE_LTP,PE_Bid,PE_Ask,PE_OI,PE_Volume")
+                writer.newLine()
+                for ((meta, rows) in entries) {
+                    val (underlying, expiry, spotPrice) = meta
+                    for (r in rows) {
+                        writer.write(
+                            "$underlying,$expiry,$spotPrice,${r.strike},${r.isAtm}," +
+                            "${r.ceSymbol},${r.ceLtp},${r.ceBid},${r.ceAsk},${r.ceOi},${r.ceVolume}," +
+                            "${r.peSymbol},${r.peLtp},${r.peBid},${r.peAsk},${r.peOi},${r.peVolume}"
+                        )
+                        writer.newLine()
+                        totalRows++
+                    }
+                }
+                writer.flush()
+            }
+        }
+        return totalRows
+    }
+
+    fun generateBulkOptionChainFileName(label: String): String {
+        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        return "${label}_optionchain_bulk_$ts.csv"
+    }
+
     fun generateOptionChainFileName(underlying: String, expiry: String): String {
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeExpiry = expiry.replace("-", "")

@@ -33,6 +33,7 @@ import com.marketdata.app.ui.theme.*
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
 import com.marketdata.app.viewmodel.DownloadViewModel
+import com.marketdata.app.viewmodel.OcBulkMode
 import com.marketdata.app.viewmodel.OPTION_CHAIN_UNDERLYINGS
 import com.marketdata.app.viewmodel.OptionChainViewModel
 
@@ -70,6 +71,19 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
             }
         }
     }
+    val ocBulkFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                optionChainViewModel.downloadBulkChain(uri)
+            }
+        }
+    }
     LaunchedEffect(Unit) {
         if (ocState.expiries.isEmpty()) optionChainViewModel.loadExpiries()
     }
@@ -94,6 +108,7 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             SelectionChip("Nifty 50", state.selectionType == SelectionType.NIFTY50) { viewModel.setSelectionType(SelectionType.NIFTY50) }
             SelectionChip("Nifty 100", state.selectionType == SelectionType.NIFTY100) { viewModel.setSelectionType(SelectionType.NIFTY100) }
+            SelectionChip("All Instruments", state.selectionType == SelectionType.ALL_NSE) { viewModel.setSelectionType(SelectionType.ALL_NSE) }
         }
 
         // Dynamic input based on selection
@@ -172,6 +187,17 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
             }
             SelectionType.NIFTY100 -> {
                 InfoCard("📊 ${NiftySymbols.NIFTY_100.size} stocks will be downloaded (Nifty 100 constituents)")
+            }
+            SelectionType.ALL_NSE -> {
+                if (state.isLoadingAllNseSymbols) {
+                    Text("Loading full instrument list...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                } else if (state.allNseSymbols.isNotEmpty()) {
+                    InfoCard(
+                        "⚠️ ${state.allNseSymbols.size} instruments will be downloaded (entire NSE equity list). " +
+                        "This can take a long time and use significant storage - consider a longer interval " +
+                        "(weekly/monthly) or a narrower date range for a full-universe download."
+                    )
+                }
             }
         }
 
@@ -258,38 +284,104 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
         // ---- Option Chain download (separate from the candle/history download above) ----
         SectionHeader("OPTION CHAIN")
         Text(
-            "Downloads every strike of the full chain for one underlying + expiry (not just the on-screen window on the Options tab).",
+            "Downloads every strike of the full chain (not just the on-screen window on the Options tab). Pick one symbol, or download a whole set at once.",
             color = TextMuted, style = MaterialTheme.typography.bodySmall
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(OPTION_CHAIN_UNDERLYINGS) { name ->
-                SelectionChip(name, ocState.underlying == name) { optionChainViewModel.selectUnderlying(name) }
-            }
-        }
-        if (ocState.expiries.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(ocState.expiries) { exp ->
-                    SelectionChip(exp, ocState.selectedExpiry == exp) { optionChainViewModel.selectExpiry(exp) }
+                SelectionChip(name, ocState.bulkMode == OcBulkMode.SINGLE && ocState.underlying == name) {
+                    optionChainViewModel.setBulkMode(OcBulkMode.SINGLE)
+                    optionChainViewModel.selectUnderlying(name)
                 }
             }
-        } else if (ocState.isLoading) {
-            Text("Loading expiries...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
         }
-        Button(
-            onClick = {
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                ocFolderLauncher.launch(intent)
-            },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
-            enabled = ocState.selectedExpiry.isNotBlank() && !ocState.isExporting
-        ) {
-            if (ocState.isExporting) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-            } else {
-                Icon(Icons.Default.Download, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("DOWNLOAD FULL OPTION CHAIN CSV")
+        AppTextField(
+            label = "Search F&O symbol",
+            value = ocState.underlyingInput,
+            onValueChange = { optionChainViewModel.setUnderlyingInput(it) },
+            placeholder = "Type to search e.g. AXISBANK"
+        )
+        if (ocState.underlyingSearchResults.isNotEmpty()) {
+            SymbolSuggestionList(
+                results = ocState.underlyingSearchResults,
+                onSelect = {
+                    optionChainViewModel.setBulkMode(OcBulkMode.SINGLE)
+                    optionChainViewModel.selectUnderlying(it)
+                }
+            )
+        }
+
+        Text("OR DOWNLOAD A WHOLE SET", color = TextMuted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SelectionChip("Nifty 50", ocState.bulkMode == OcBulkMode.NIFTY50) { optionChainViewModel.setBulkMode(OcBulkMode.NIFTY50) }
+            SelectionChip("Nifty 100", ocState.bulkMode == OcBulkMode.NIFTY100) { optionChainViewModel.setBulkMode(OcBulkMode.NIFTY100) }
+            SelectionChip("All F&O", ocState.bulkMode == OcBulkMode.ALL_FNO) { optionChainViewModel.setBulkMode(OcBulkMode.ALL_FNO) }
+        }
+
+        if (ocState.bulkMode != OcBulkMode.SINGLE) {
+            if (ocState.isLoadingBulkExpiries) {
+                Text("Loading available expiries...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+            } else if (ocState.bulkExpiryOptions.isNotEmpty()) {
+                Text(
+                    "Pick one expiry date - each symbol resolves to its own nearest available expiry on or after that date.",
+                    color = TextMuted, style = MaterialTheme.typography.bodySmall
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(ocState.bulkExpiryOptions) { exp ->
+                        SelectionChip(exp, ocState.selectedBulkExpiry == exp) { optionChainViewModel.setSelectedBulkExpiry(exp) }
+                    }
+                }
+            }
+            Button(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                    ocBulkFolderLauncher.launch(intent)
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                enabled = ocState.selectedBulkExpiry.isNotBlank() && !ocState.isBulkDownloading
+            ) {
+                if (ocState.isBulkDownloading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                } else {
+                    Icon(Icons.Default.Download, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("DOWNLOAD ${bulkModeLabel(ocState.bulkMode)} OPTION CHAINS")
+                }
+            }
+            if (ocState.isBulkDownloading) {
+                LinearProgressIndicator(
+                    progress = { if (ocState.bulkTotal > 0) ocState.bulkDone.toFloat() / ocState.bulkTotal else 0f },
+                    modifier = Modifier.fillMaxWidth(), color = AccentBlue, trackColor = DarkBorder
+                )
+                Text(ocState.bulkProgressText, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            }
+        } else {
+            if (ocState.expiries.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(ocState.expiries) { exp ->
+                        SelectionChip(exp, ocState.selectedExpiry == exp) { optionChainViewModel.selectExpiry(exp) }
+                    }
+                }
+            } else if (ocState.isLoading) {
+                Text("Loading expiries...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+            }
+            Button(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                    ocFolderLauncher.launch(intent)
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                enabled = ocState.selectedExpiry.isNotBlank() && !ocState.isExporting
+            ) {
+                if (ocState.isExporting) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                } else {
+                    Icon(Icons.Default.Download, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("DOWNLOAD FULL OPTION CHAIN CSV")
+                }
             }
         }
         ocState.exportMessage?.let {
@@ -420,4 +512,11 @@ fun SymbolChipFlow(symbols: List<String>, onRemove: (String) -> Unit) {
             }
         }
     }
+}
+
+private fun bulkModeLabel(mode: OcBulkMode): String = when (mode) {
+    OcBulkMode.NIFTY50 -> "NIFTY 50"
+    OcBulkMode.NIFTY100 -> "NIFTY 100"
+    OcBulkMode.ALL_FNO -> "ALL F&O"
+    OcBulkMode.SINGLE -> ""
 }

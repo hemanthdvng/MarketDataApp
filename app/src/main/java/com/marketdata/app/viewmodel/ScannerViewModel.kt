@@ -55,7 +55,9 @@ data class ScannerState(
     val topSell: List<ScanPick> = emptyList(),
     val allActive: List<PatternResult> = emptyList(),
     val scannedSymbolCount: Int = 0,
-    val lastScanLabel: String = ""
+    val lastScanLabel: String = "",
+    val allNseSymbols: List<String> = emptyList(),
+    val isLoadingAllNseSymbols: Boolean = false
 )
 
 class ScannerViewModel(app: Application) : AndroidViewModel(app) {
@@ -101,7 +103,21 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setSelectionType(t: SelectionType) = update { copy(selectionType = t, symbolQuery = "") }
+    fun setSelectionType(t: SelectionType) {
+        update { copy(selectionType = t, symbolQuery = "") }
+        if (t == SelectionType.ALL_NSE && _state.value.allNseSymbols.isEmpty()) {
+            viewModelScope.launch {
+                update { copy(isLoadingAllNseSymbols = true) }
+                try {
+                    if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                    val syms = repo.getAllNseEquitySymbols()
+                    update { copy(allNseSymbols = syms, isLoadingAllNseSymbols = false) }
+                } catch (e: Exception) {
+                    update { copy(isLoadingAllNseSymbols = false, error = "Failed to load instrument list: ${e.message}") }
+                }
+            }
+        }
+    }
     fun setSingleSymbol(s: String) = update { copy(singleSymbol = s.uppercase(), symbolQuery = "") }
     fun clearSingleSymbol() = update { copy(singleSymbol = "") }
     fun setSymbolQuery(q: String) = update { copy(symbolQuery = q.uppercase()) }
@@ -134,6 +150,7 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
             SelectionType.NIFTY50 -> NiftySymbols.NIFTY_50
             SelectionType.NIFTY100 -> NiftySymbols.NIFTY_100
             SelectionType.INDEX -> emptyList()
+            SelectionType.ALL_NSE -> s.allNseSymbols
         }
     }
 

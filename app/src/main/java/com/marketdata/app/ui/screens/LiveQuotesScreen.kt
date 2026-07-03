@@ -81,6 +81,21 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
                 Text("NIFTY 100")
             }
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { viewModel.loadAllInstruments() },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.isLoadingAllInstruments,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentAmber)
+        ) {
+            if (state.isLoadingAllInstruments) {
+                CircularProgressIndicator(color = AccentAmber, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(state.allInstrumentsProgress.ifBlank { "Loading..." })
+            } else {
+                Text("ALL INSTRUMENTS (FULL NSE)")
+            }
+        }
 
         Spacer(Modifier.height(8.dp))
         Card(colors = CardDefaults.cardColors(containerColor = DarkCard)) {
