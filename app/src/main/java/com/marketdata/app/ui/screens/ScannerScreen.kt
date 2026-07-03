@@ -60,6 +60,7 @@ fun ScannerScreen(viewModel: ScannerViewModel) {
             SelectionType.MULTI -> state.multiSymbols.joinToString(",")
             SelectionType.INDEX -> "" // live scanning doesn't support INDEX yet (matches the manual scan's own limitation)
             SelectionType.NIFTY50, SelectionType.NIFTY100 -> ""
+            SelectionType.ALL_NSE -> state.allNseSymbols.joinToString(",") // snapshotted here since the bg service has no ViewModel/DB access of its own to re-resolve "all NSE" live
         }
         prefs.scannerBgIntervalIndex = state.selectedInterval
         prefs.scannerBgLookbackDays = state.lookbackDays
