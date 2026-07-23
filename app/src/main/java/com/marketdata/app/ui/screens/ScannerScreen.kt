@@ -37,6 +37,7 @@ import com.marketdata.app.viewmodel.ScanSource
 import com.marketdata.app.viewmodel.ScannerViewModel
 import com.marketdata.app.util.TradingStyle
 import com.marketdata.app.util.TradingStyles
+import com.marketdata.app.volumefilter.VolumeFilterBar
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -122,6 +123,14 @@ fun ScannerScreen(viewModel: ScannerViewModel) {
         Text(state.style.blurb, color = TextMuted, style = MaterialTheme.typography.bodySmall)
         Text(
             "Sets timeframe, lookback, session handling and ATR stop/target for you \u2014 all still editable below.",
+            color = TextMuted, style = MaterialTheme.typography.bodySmall
+        )
+
+        // ---- Volume filter (independent per screen) ----
+        SectionHeader("VOLUME FILTER")
+        VolumeFilterBar(store = viewModel.volumeFilterStore)
+        Text(
+            "Applied before scanning \u2014 low-volume symbols are skipped entirely, not just hidden from results.",
             color = TextMuted, style = MaterialTheme.typography.bodySmall
         )
 

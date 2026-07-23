@@ -6,14 +6,15 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [InstrumentEntity::class, DownloadedFileEntity::class, SymbolSyncEntity::class, SyncFileEntity::class],
-    version = 3,
+    entities = [InstrumentEntity::class, DownloadedFileEntity::class, SymbolSyncEntity::class, SyncFileEntity::class, VolumeSnapshotEntity::class],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun instrumentDao(): InstrumentDao
     abstract fun downloadedFileDao(): DownloadedFileDao
     abstract fun syncDao(): SyncDao
+    abstract fun volumeSnapshotDao(): VolumeSnapshotDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -26,10 +27,12 @@ abstract class AppDatabase : RoomDatabase() {
                     "market_data.db"
                 )
                     // v1 -> v2 added symbol_sync/sync_file for incremental downloads.
-                    // Both are rebuildable caches (instruments re-fetch in one call,
-                    // downloaded_files just re-lists existing CSVs), so a destructive
-                    // migration is safe and avoids hand-writing a Migration for a
-                    // cache table.
+                    // v3 -> v4 added volume_snapshot (also a rebuildable cache - just
+                    // re-fetched on next "Refresh volumes" tap).
+                    // All of these are rebuildable caches (instruments re-fetch in one
+                    // call, downloaded_files just re-lists existing CSVs), so a
+                    // destructive migration is safe and avoids hand-writing a Migration
+                    // for a cache table.
                     .fallbackToDestructiveMigration()
                     .build().also { INSTANCE = it }
             }

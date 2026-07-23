@@ -25,6 +25,7 @@ import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AgentViewModel
 import com.marketdata.app.viewmodel.OptionChainViewModel
+import com.marketdata.app.volumefilter.VolumeFilterBar
 import kotlinx.coroutines.launch
 
 @Composable
@@ -155,6 +156,12 @@ fun AgentScreen(viewModel: AgentViewModel, optionChainViewModel: OptionChainView
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) { Text("NIFTY 100", style = MaterialTheme.typography.labelSmall) }
                     }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Volume filter (scopes the buttons above; re-tap a button after changing it):",
+                        color = TextMuted, style = MaterialTheme.typography.bodySmall
+                    )
+                    VolumeFilterBar(store = viewModel.volumeFilterStore)
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(

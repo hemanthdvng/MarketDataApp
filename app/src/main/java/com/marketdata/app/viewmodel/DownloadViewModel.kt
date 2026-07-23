@@ -16,6 +16,9 @@ import com.marketdata.app.util.CsvReader
 import com.marketdata.app.util.CsvWriter
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
+import com.marketdata.app.volumefilter.VolumeFilterMode
+import com.marketdata.app.volumefilter.VolumeFilterStore
+import com.marketdata.app.data.db.VolumeSnapshotEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -42,13 +45,20 @@ data class DownloadState(
     // "All Instruments" (ALL_NSE) - the full NSE equity universe, loaded on
     // demand since it can be 2000+ symbols and isn't needed until picked.
     val allNseSymbols: List<String> = emptyList(),
-    val isLoadingAllNseSymbols: Boolean = false
+    val isLoadingAllNseSymbols: Boolean = false,
+    // Volume snapshot cache refresh (used to filter ALL_NSE down before
+    // spending download API calls on illiquid instruments).
+    val isRefreshingVolumes: Boolean = false
 )
 
 class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = SecurePrefs.getInstance(app)
     private val repo = KiteRepository(app)
     private val db = AppDatabase.getInstance(app)
+
+    /** Independent per-screen volume filter, only meaningful for the
+     *  ALL_NSE selection (Nifty 50/100 are already small, curated lists). */
+    val volumeFilterStore = VolumeFilterStore(app, "download")
 
     private val _state = MutableStateFlow(DownloadState())
     val state = _state.asStateFlow()
@@ -77,6 +87,43 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setFolder(uri: Uri, displayName: String) {
         updateState { copy(folderUri = uri, folderName = displayName) }
+    }
+
+    /** Refreshes the cached volume snapshot (one batched Kite quote call
+     *  across every NSE equity), shared by the Download/Scanner/Agent
+     *  screens' volume filters. Run this at least once before turning the
+     *  ALL_NSE volume filter on. */
+    fun refreshVolumeSnapshot() {
+        viewModelScope.launch {
+            updateState { copy(isRefreshingVolumes = true, error = null, successMessage = null) }
+            try {
+                if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                val symbols = repo.getAllNseEquitySymbols()
+                if (symbols.isEmpty()) {
+                    updateState { copy(isRefreshingVolumes = false, error = "No instruments found - try refreshing instruments on the Login tab") }
+                    return@launch
+                }
+                val result = repo.fetchQuotesBatched(symbols) { done, total ->
+                    updateState { copy(progressText = "Refreshing volumes: batch $done/$total...") }
+                }
+                result.onSuccess { quotes ->
+                    val now = System.currentTimeMillis()
+                    val rows = quotes.map { VolumeSnapshotEntity(it.symbol, it.volume, now) }
+                    db.volumeSnapshotDao().upsertAll(rows)
+                    updateState {
+                        copy(
+                            isRefreshingVolumes = false, progressText = "",
+                            successMessage = "Volume snapshot refreshed (${rows.size} symbols)"
+                        )
+                    }
+                }
+                result.onFailure { e ->
+                    updateState { copy(isRefreshingVolumes = false, progressText = "", error = "Volume refresh failed: ${e.message}") }
+                }
+            } catch (e: Exception) {
+                updateState { copy(isRefreshingVolumes = false, progressText = "", error = "Volume refresh failed: ${e.message}") }
+            }
+        }
     }
 
     /** Search-as-you-type. Falls back to the static Nifty 100 list if the
@@ -132,7 +179,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
-        val symbols = getSymbols(s)
+        var symbols = getSymbols(s)
         if (symbols.isEmpty()) {
             updateState { copy(error = "Please select at least one symbol") }
             return
@@ -144,6 +191,23 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             updateState { copy(isDownloading = true, progress = 0f, error = null, successMessage = null) }
+
+            // Volume filter (ALL_NSE only) - applied BEFORE token resolution
+            // and historical fetch, so filtered-out symbols never cost an API
+            // call. Requires refreshVolumeSnapshot() to have been run at
+            // least once; if the cache is empty, the filter is a no-op
+            // rather than silently downloading zero symbols.
+            if (s.selectionType == SelectionType.ALL_NSE && volumeFilterStore.mode != VolumeFilterMode.Off) {
+                val snapshotRows = when (val m = volumeFilterStore.mode) {
+                    is VolumeFilterMode.MinThreshold -> db.volumeSnapshotDao().getAboveThreshold(m.minVolume)
+                    is VolumeFilterMode.TopN -> db.volumeSnapshotDao().getTopN(m.count)
+                    else -> emptyList()
+                }
+                if (snapshotRows.isNotEmpty()) {
+                    val allowed = snapshotRows.map { it.tradingSymbol }.toSet()
+                    symbols = symbols.filter { it in allowed }
+                }
+            }
 
             // --- Incremental sync: load what we already have for this interval
             // so we only ask Kite for what's actually missing. ---

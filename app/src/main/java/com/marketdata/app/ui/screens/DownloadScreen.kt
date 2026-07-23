@@ -36,6 +36,7 @@ import com.marketdata.app.viewmodel.DownloadViewModel
 import com.marketdata.app.viewmodel.OcBulkMode
 import com.marketdata.app.viewmodel.OPTION_CHAIN_UNDERLYINGS
 import com.marketdata.app.viewmodel.OptionChainViewModel
+import com.marketdata.app.volumefilter.VolumeFilterBar
 
 @Composable
 fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionChainViewModel) {
@@ -196,6 +197,26 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
                         "⚠️ ${state.allNseSymbols.size} instruments will be downloaded (entire NSE equity list). " +
                         "This can take a long time and use significant storage - consider a longer interval " +
                         "(weekly/monthly) or a narrower date range for a full-universe download."
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Volume filter (applied before downloading):", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VolumeFilterBar(store = viewModel.volumeFilterStore)
+                        OutlinedButton(
+                            onClick = { viewModel.refreshVolumeSnapshot() },
+                            enabled = !state.isRefreshingVolumes,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentAmber)
+                        ) {
+                            if (state.isRefreshingVolumes) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = AccentAmber)
+                            } else {
+                                Text("Refresh volumes", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    Text(
+                        "Refresh volumes at least once before using the filter - it needs a cached snapshot to filter against.",
+                        color = TextMuted, style = MaterialTheme.typography.bodySmall
                     )
                 }
             }

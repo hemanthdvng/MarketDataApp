@@ -12,10 +12,13 @@ import com.marketdata.app.data.models.AiModels
 import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.models.OptionChainRow
 import com.marketdata.app.data.models.ThinkingLevel
+import com.marketdata.app.data.db.AppDatabase
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.data.repository.AgentRepository
 import com.marketdata.app.data.repository.KiteRepository
 import com.marketdata.app.util.NiftySymbols
+import com.marketdata.app.volumefilter.VolumeFilterMode
+import com.marketdata.app.volumefilter.VolumeFilterStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +58,15 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = SecurePrefs.getInstance(app)
     private val agentRepo = AgentRepository(prefs)
     private val kiteRepo = KiteRepository(app)
+    private val db = AppDatabase.getInstance(app)
+
+    /** Independent per-screen volume filter. Scopes which symbols the quick
+     *  NIFTY 50 / NIFTY 100 context buttons below actually send to the
+     *  model, using the same volume_snapshot cache the Download screen's
+     *  "Refresh volumes" button populates - so the agent isn't flooded with
+     *  the full universe when the user only cares about liquid names.
+     *  "Off" mode sends the full list, unchanged from before. */
+    val volumeFilterStore = VolumeFilterStore(app, "agent")
 
     private val _state = MutableStateFlow(AgentState(customInstructions = prefs.agentCustomInstructions))
     val state = _state.asStateFlow()
@@ -63,8 +75,26 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     fun setModel(m: AiModelOption) = update { copy(selectedModel = m) }
     fun setAutoFetch(v: Boolean) = update { copy(autoFetchQuotes = v) }
     fun setContextSymbols(s: String) = update { copy(symbolsForContext = s.uppercase()) }
-    fun useNifty50Context() = update { copy(symbolsForContext = NiftySymbols.NIFTY_50.joinToString(",")) }
-    fun useNifty100Context() = update { copy(symbolsForContext = NiftySymbols.NIFTY_100.joinToString(",")) }
+    fun useNifty50Context() = applyContextList(NiftySymbols.NIFTY_50)
+    fun useNifty100Context() = applyContextList(NiftySymbols.NIFTY_100)
+
+    private fun applyContextList(candidates: List<String>) {
+        viewModelScope.launch {
+            val mode = volumeFilterStore.mode
+            val filtered = when (mode) {
+                is VolumeFilterMode.Off -> candidates
+                is VolumeFilterMode.MinThreshold -> {
+                    val allowed = db.volumeSnapshotDao().getAboveThreshold(mode.minVolume).map { it.tradingSymbol }.toSet()
+                    candidates.filter { it in allowed }.ifEmpty { candidates } // empty/no snapshot yet - fall back rather than send nothing
+                }
+                is VolumeFilterMode.TopN -> {
+                    val allowed = db.volumeSnapshotDao().getTopN(mode.count).map { it.tradingSymbol }.toSet()
+                    candidates.filter { it in allowed }.ifEmpty { candidates }
+                }
+            }
+            update { copy(symbolsForContext = filtered.joinToString(",")) }
+        }
+    }
     fun setThinkingLevel(l: ThinkingLevel) = update { copy(thinkingLevel = l) }
     fun setIncludeOptionChain(v: Boolean) = update { copy(includeOptionChain = v) }
 

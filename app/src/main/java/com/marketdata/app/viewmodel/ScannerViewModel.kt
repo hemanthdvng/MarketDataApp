@@ -18,6 +18,9 @@ import com.marketdata.app.util.StylePreset
 import com.marketdata.app.util.TradeLevels
 import com.marketdata.app.util.TradingStyle
 import com.marketdata.app.util.TradingStyles
+import com.marketdata.app.volumefilter.VolumeFilterMode
+import com.marketdata.app.volumefilter.VolumeFilterStore
+import com.marketdata.app.volumefilter.applyVolumeFilter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -63,6 +66,12 @@ data class ScannerState(
 class ScannerViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = KiteRepository(app)
     private val db = AppDatabase.getInstance(app)
+
+    /** Independent per-screen volume filter (see DATA SOURCE section of the
+     *  Scanner screen). Applied to dataMap in runScan() BEFORE PatternEngine
+     *  runs, since the whole point is to skip pattern-scanning low-volume
+     *  symbols rather than just re-sorting results after the fact. */
+    val volumeFilterStore = VolumeFilterStore(app, "scanner")
 
     private val _state = MutableStateFlow(ScannerState())
     val state = _state.asStateFlow()
@@ -178,9 +187,28 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
 
-                update { copy(progressText = "Scanning ${dataMap.size} symbols...") }
+                // Volume filter applied here, before PatternEngine runs, so
+                // low-volume symbols never get scanned at all (not just hidden
+                // from the results afterwards).
+                val volumeFilteredMap: Map<String, List<KiteCandle>> = applyVolumeFilter(
+                    dataMap.entries.toList(),
+                    volumeOf = { it.value.lastOrNull()?.volume ?: 0L },
+                    mode = volumeFilterStore.mode
+                ).associate { it.key to it.value }
+
+                if (volumeFilteredMap.isEmpty()) {
+                    update {
+                        copy(
+                            isScanning = false,
+                            error = "No symbols passed the volume filter. Loosen it in the DATA SOURCE section."
+                        )
+                    }
+                    return@launch
+                }
+
+                update { copy(progressText = "Scanning ${volumeFilteredMap.size} symbols...") }
                 val allResults = mutableListOf<PatternResult>()
-                for ((sym, candles) in dataMap) {
+                for ((sym, candles) in volumeFilteredMap) {
                     allResults.addAll(PatternEngine.scan(sym, candles, sessionOnly = s.sessionOnly, thresholdFactor = s.thresholdFactor))
                 }
 
@@ -206,8 +234,8 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
                         topBuy = buyPicks,
                         topSell = sellPicks,
                         allActive = active,
-                        scannedSymbolCount = dataMap.size,
-                        lastScanLabel = "${dataMap.size} symbols \u2022 ${allResults.size} pattern checks \u2022 ${active.size} active signals"
+                        scannedSymbolCount = volumeFilteredMap.size,
+                        lastScanLabel = "${volumeFilteredMap.size} symbols \u2022 ${allResults.size} pattern checks \u2022 ${active.size} active signals"
                     )
                 }
             } catch (e: Exception) {

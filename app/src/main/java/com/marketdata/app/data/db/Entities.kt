@@ -54,3 +54,15 @@ data class SyncFileEntity(
     val interval: String,
     val filePath: String
 )
+
+/** Cached daily volume per NSE equity symbol, refreshed on demand (see
+ *  DownloadViewModel.refreshVolumeSnapshot) from a single batched Kite quote
+ *  call. Lets the Download/Scanner/Agent screens filter by volume BEFORE
+ *  spending API calls or CPU on instruments the user doesn't care about,
+ *  instead of just sorting an already-fully-loaded list. */
+@Entity(tableName = "volume_snapshot")
+data class VolumeSnapshotEntity(
+    @PrimaryKey val tradingSymbol: String,
+    val avgVolume: Long,
+    val lastUpdatedEpochMillis: Long = System.currentTimeMillis()
+)

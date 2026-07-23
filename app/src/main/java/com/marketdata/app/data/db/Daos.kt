@@ -94,3 +94,21 @@ interface SyncDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSyncFile(entity: SyncFileEntity)
 }
+
+@Dao
+interface VolumeSnapshotDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(rows: List<VolumeSnapshotEntity>)
+
+    @Query("SELECT * FROM volume_snapshot WHERE avgVolume >= :minVolume ORDER BY avgVolume DESC")
+    suspend fun getAboveThreshold(minVolume: Long): List<VolumeSnapshotEntity>
+
+    @Query("SELECT * FROM volume_snapshot ORDER BY avgVolume DESC LIMIT :n")
+    suspend fun getTopN(n: Int): List<VolumeSnapshotEntity>
+
+    @Query("SELECT MAX(lastUpdatedEpochMillis) FROM volume_snapshot")
+    suspend fun getLastUpdated(): Long?
+
+    @Query("SELECT COUNT(*) FROM volume_snapshot")
+    suspend fun count(): Int
+}

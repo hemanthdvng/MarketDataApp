@@ -22,11 +22,21 @@ import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.LIVE_REFRESH_INTERVALS
 import com.marketdata.app.viewmodel.LiveQuotesViewModel
+import com.marketdata.app.volumefilter.VolumeFilterBar
+import com.marketdata.app.volumefilter.VolumeFilterStore
+import com.marketdata.app.volumefilter.applyVolumeFilter
 
 @Composable
 fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val volumeFilterStore = remember { VolumeFilterStore(context, "live_quotes") }
+    // Filtered for DISPLAY only (recomputes on every recomposition, not on
+    // every tick, since this list already only refreshes on the poll
+    // interval / manual fetch - no extra debouncing needed on top of that).
+    val displayedQuotes = remember(state.quotes, volumeFilterStore.mode) {
+        applyVolumeFilter(state.quotes, { it.volume }, volumeFilterStore.mode)
+    }
 
     val folderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -52,6 +62,9 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             onValueChange = { viewModel.setSymbolInput(it) },
             placeholder = "RELIANCE,TCS,INFY"
         )
+
+        Spacer(Modifier.height(8.dp))
+        VolumeFilterBar(store = volumeFilterStore)
 
         Spacer(Modifier.height(8.dp))
         Button(
@@ -129,7 +142,7 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             }
         }
 
-        if (state.quotes.isNotEmpty()) {
+        if (displayedQuotes.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
@@ -160,13 +173,13 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
 
         Spacer(Modifier.height(12.dp))
 
-        if (state.quotes.isNotEmpty()) {
+        if (displayedQuotes.isNotEmpty()) {
             // Header row
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("SYMBOL", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1.3f))
+                Text("SYMBOL (${displayedQuotes.size}/${state.quotes.size})", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1.3f))
                 Text("LTP", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
                 Text("CHG%", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
                 Text("VOL", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
@@ -174,7 +187,7 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             Divider(color = DarkBorder)
 
             LazyColumn {
-                items(state.quotes) { quote ->
+                items(displayedQuotes) { quote ->
                     QuoteRow(quote)
                     Divider(color = DarkBorder, thickness = 0.5.dp)
                 }
