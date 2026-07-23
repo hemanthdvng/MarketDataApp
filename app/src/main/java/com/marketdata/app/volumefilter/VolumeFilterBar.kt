@@ -35,7 +35,7 @@ fun VolumeFilterBar(
         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
             DropdownMenuItem(
                 text = { Text("Off") },
-                onClick = { store.setMode(VolumeFilterMode.Off); menuExpanded = false }
+                onClick = { store.updateMode(VolumeFilterMode.Off); menuExpanded = false }
             )
 
             Divider()
@@ -47,7 +47,7 @@ fun VolumeFilterBar(
             minThresholdOptions.forEach { threshold ->
                 DropdownMenuItem(
                     text = { Text(formatVolumeShort(threshold)) },
-                    onClick = { store.setMode(VolumeFilterMode.MinThreshold(threshold)); menuExpanded = false }
+                    onClick = { store.updateMode(VolumeFilterMode.MinThreshold(threshold)); menuExpanded = false }
                 )
             }
 
@@ -60,7 +60,7 @@ fun VolumeFilterBar(
             topNOptions.forEach { n ->
                 DropdownMenuItem(
                     text = { Text("Top $n") },
-                    onClick = { store.setMode(VolumeFilterMode.TopN(n)); menuExpanded = false }
+                    onClick = { store.updateMode(VolumeFilterMode.TopN(n)); menuExpanded = false }
                 )
             }
         }

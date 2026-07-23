@@ -54,7 +54,11 @@ class VolumeFilterStore(context: Context, private val screenKey: String) {
     )
         private set
 
-    fun setMode(newMode: VolumeFilterMode) {
+    // Named updateMode() (not setMode()) - a plain setMode() here would
+    // clash at the JVM level with the synthetic <set-mode> generated for
+    // the `var mode` property above (both compile to the same signature
+    // setMode(VolumeFilterMode), which fails compileReleaseKotlin).
+    fun updateMode(newMode: VolumeFilterMode) {
         mode = newMode
         prefs.edit().putString(prefKey, newMode.serialize()).apply()
     }
