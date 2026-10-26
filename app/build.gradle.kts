@@ -13,14 +13,33 @@ android {
         applicationId = "com.marketdata.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
+        // Play rejects an upload whose versionCode was already used, so CI
+        // stamps each build with the GitHub run number (always increasing).
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "1.0"
+    }
+
+    // Upload-key signing for Play. CI supplies these from GitHub secrets
+    // (see docs/PLAY_RELEASE.md). Locally / without secrets the release build
+    // falls back to the debug key so sideload APKs keep working - but a
+    // debug-signed build can NOT be uploaded to Play.
+    val uploadKeystore: String? = System.getenv("UPLOAD_KEYSTORE_PATH")
+    signingConfigs {
+        if (uploadKeystore != null && file(uploadKeystore).exists()) {
+            create("upload") {
+                storeFile = file(uploadKeystore)
+                storePassword = System.getenv("UPLOAD_STORE_PASSWORD")
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("upload")
+                ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

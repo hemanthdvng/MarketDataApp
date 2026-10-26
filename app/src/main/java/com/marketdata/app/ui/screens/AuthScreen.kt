@@ -46,6 +46,21 @@ fun AuthScreen(
         Text("Market Data Terminal", style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary)
 
+        Card(
+            colors = CardDefaults.cardColors(containerColor = DarkCard),
+            modifier = Modifier.fillMaxWidth().border(1.dp, DarkBorder, MaterialTheme.shapes.medium)
+        ) {
+            Text(
+                "Independent tool, not affiliated with NSE or Zerodha. You use your own Kite Connect " +
+                    "and AI API keys. Market data, pattern signals and AI replies are for information " +
+                    "and education only. They are not investment advice and may be wrong. Trading " +
+                    "involves risk of loss.",
+                color = TextSecondary,
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
         Spacer(Modifier.height(8.dp))
 
         // Logged in status
@@ -76,7 +91,7 @@ fun AuthScreen(
             label = "API Key",
             value = state.apiKey,
             onValueChange = { viewModel.updateApiKey(it) },
-            placeholder = "6ju6ony28o03f742"
+            placeholder = "Your Kite Connect API key"
         )
 
         AppTextField(

@@ -60,7 +60,8 @@ interface KiteApiService {
 
         fun create(): KiteApiService {
             val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
+                // No request logging in shipped builds (URLs can carry the API key).
+                level = HttpLoggingInterceptor.Level.NONE
             }
             val client = OkHttpClient.Builder()
                 .addInterceptor(logging)

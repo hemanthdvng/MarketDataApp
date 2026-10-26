@@ -1,8 +1,8 @@
-name: Build APK
+name: Build APK and AAB
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, play-release-prep ]
   workflow_dispatch:
 
 jobs:
@@ -22,12 +22,37 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Build Release APK
-        run: gradle assembleRelease --no-daemon
+      # Optional: if the UPLOAD_KEYSTORE_BASE64 secret exists, sign with your
+      # Play upload key. Without it the build falls back to the debug key
+      # (fine for sideloading, NOT accepted by Play).
+      - name: Restore upload keystore
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$UPLOAD_KEYSTORE_BASE64" ]; then
+            echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "UPLOAD_KEYSTORE_PATH=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+          else
+            echo "No upload keystore secret set; using debug signing."
+          fi
+
+      - name: Build release APK and AAB
+        env:
+          UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: gradle assembleRelease bundleRelease --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MarketDataApp-release
+          name: MarketDataApp-release-apk
           path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Upload AAB (for Play Console)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MarketDataApp-release-aab
+          path: app/build/outputs/bundle/release/*.aab
           retention-days: 30

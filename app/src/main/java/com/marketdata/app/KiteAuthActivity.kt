@@ -32,6 +32,9 @@ class KiteAuthActivity : Activity() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(android.graphics.Color.BLACK)
+            // targetSdk 35+ draws edge-to-edge; keep the login page out from
+            // under the status/navigation bars.
+            fitsSystemWindows = true
         }
 
         val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
