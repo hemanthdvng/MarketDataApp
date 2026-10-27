@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "com.marketdata.app"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 36
         // Play rejects an upload whose versionCode was already used, so CI
         // stamps each build with the GitHub run number (always increasing).
