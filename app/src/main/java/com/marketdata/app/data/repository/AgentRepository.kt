@@ -83,6 +83,9 @@ When analyzing, provide:
 
 Always mention if you need more specific data to give better analysis.
 Format numbers clearly. Use INR for prices.
+You are not a SEBI-registered advisor: present this as educational analysis, not
+personalised investment advice, and briefly remind the user that trading carries
+risk of loss and decisions are their own.
 """.trimIndent())
 
         if (!customInstructions.isNullOrBlank()) {
