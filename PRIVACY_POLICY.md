@@ -1,11 +1,11 @@
 # Privacy Policy
 
-**App:** MarketDataApp (working title)
+**App:** MarketData
 **Developer:** Hemanth (independent developer)
 **Contact:** hemanthdvng1@gmail.com
-**Last updated:** 26 October 2026
+**Last updated:** 29 October 2026
 
-MarketDataApp is an Android tool that lets you download NSE market data through
+MarketData is an Android tool that lets you download NSE market data through
 your own Zerodha Kite Connect account, view live quotes, scan charts for
 patterns, and chat with an AI assistant using your own AI API keys.
 
@@ -18,7 +18,8 @@ goes directly from your device to the third-party service you chose to connect.
   Claude (Anthropic) and Gemini (Google) API keys. These are kept in Android
   encrypted storage and are never sent to the developer.
 - Instrument lists, download history and scanner settings (local database).
-- CSV files you download, saved to the folder you pick.
+- CSV files you download, saved to the Download/MarketData folder on your device
+  by default, or to a folder you pick.
 - App backup is disabled, so this data is not copied to cloud backups.
 
 ## Data sent to third parties (directly from your device)

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -25,11 +26,11 @@ import com.marketdata.app.viewmodel.*
 
 sealed class Screen(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     object Auth : Screen("auth", "Login", Icons.Default.Key)
-    object Download : Screen("download", "Download", Icons.Default.Download)
+    object Download : Screen("download", "Data", Icons.Default.Download)
     object Live : Screen("live", "Live", Icons.Default.ShowChart)
-    object Scanner : Screen("scanner", "Scanner", Icons.Default.TrendingUp)
+    object Scanner : Screen("scanner", "Scan", Icons.Default.TrendingUp)
     object OptionChain : Screen("option_chain", "Options", Icons.Default.TableChart)
-    object Agent : Screen("agent", "Agent", Icons.Default.SmartToy)
+    object Agent : Screen("agent", "AI", Icons.Default.SmartToy)
     object Files : Screen("files", "Files", Icons.Default.Folder)
 }
 
@@ -115,7 +116,15 @@ fun MainScreen(
                             }
                         },
                         icon = { Icon(screen.icon, contentDescription = screen.label) },
-                        label = { Text(screen.label, style = MaterialTheme.typography.bodySmall) },
+                        label = {
+                            Text(
+                                screen.label,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = AccentBlue,
                             selectedTextColor = AccentBlue,

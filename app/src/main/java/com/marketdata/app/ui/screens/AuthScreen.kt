@@ -41,9 +41,9 @@ fun AuthScreen(
         Spacer(Modifier.height(24.dp))
 
         // Header
-        Text("⚡ NIFTYBOT", style = MaterialTheme.typography.headlineLarge,
+        Text("MarketData", style = MaterialTheme.typography.headlineLarge,
             color = AccentBlue)
-        Text("Market Data Terminal", style = MaterialTheme.typography.bodyMedium,
+        Text("Indian market data, scanner and AI assistant", style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary)
 
         Card(

@@ -19,7 +19,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.LiveQuoteDisplay
+import com.marketdata.app.ui.components.InfoBanner
+import com.marketdata.app.ui.components.ScreenHeader
 import com.marketdata.app.ui.theme.*
+import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.viewmodel.LIVE_REFRESH_INTERVALS
 import com.marketdata.app.viewmodel.LiveQuotesViewModel
 import com.marketdata.app.volumefilter.VolumeFilterBar
@@ -53,8 +56,16 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
     }
 
     Column(modifier = Modifier.fillMaxSize().background(DarkBackground).padding(16.dp)) {
-        Text("LIVE QUOTES", style = MaterialTheme.typography.headlineMedium, color = AccentBlue)
-        Spacer(Modifier.height(12.dp))
+        ScreenHeader("LIVE QUOTES", subtitle = "Latest prices for the symbols you choose")
+        Spacer(Modifier.height(10.dp))
+        InfoBanner(
+            title = "BEST DURING MARKET HOURS",
+            text = "Prices update while NSE is open (Mon-Fri, 9:15 AM to 3:30 PM IST). Outside " +
+                "those hours you will only see the last session's values. Zerodha lists live market " +
+                "data under its paid Kite Connect plan, not the free Personal API, so on a free " +
+                "plan quotes may come back empty or fail."
+        )
+        Spacer(Modifier.height(10.dp))
 
         AppTextField(
             label = "Symbols (comma separated)",
@@ -146,8 +157,9 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
-                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                    folderLauncher.launch(intent)
+                    val folder = SaveFolder.current(context)
+                    if (folder != null) viewModel.saveToCSV(folder)
+                    else folderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentGreen)

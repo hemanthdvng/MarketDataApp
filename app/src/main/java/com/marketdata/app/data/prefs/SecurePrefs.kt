@@ -45,6 +45,11 @@ class SecurePrefs(context: Context) {
         get() = prefs.getString(KEY_GEMINI_API, "") ?: ""
         set(value) = prefs.edit().putString(KEY_GEMINI_API, value).apply()
 
+    /** Folder the user picked for CSV files. Empty = default (Download/MarketData). */
+    var saveFolderUri: String
+        get() = prefs.getString(KEY_SAVE_FOLDER, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_SAVE_FOLDER, value).apply()
+
     var instrumentsLastUpdated: Long
         get() = prefs.getLong(KEY_INSTRUMENTS_UPDATED, 0L)
         set(value) = prefs.edit().putLong(KEY_INSTRUMENTS_UPDATED, value).apply()
@@ -134,6 +139,7 @@ class SecurePrefs(context: Context) {
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_CLAUDE_API = "claude_api_key"
         private const val KEY_GEMINI_API = "gemini_api_key"
+        private const val KEY_SAVE_FOLDER = "save_folder_uri"
         private const val KEY_INSTRUMENTS_UPDATED = "instruments_last_updated"
         private const val KEY_DERIV_INSTRUMENTS_UPDATED = "derivative_instruments_last_updated"
         private const val KEY_AGENT_INSTRUCTIONS = "agent_custom_instructions"

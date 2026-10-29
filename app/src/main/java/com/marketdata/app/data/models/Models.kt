@@ -130,15 +130,21 @@ data class AiModelOption(
 )
 
 object AiModels {
+    // Model IDs checked against the providers' docs on 29 Oct 2026
+    // (platform.claude.com/docs/en/about-claude/models/overview and
+    // ai.google.dev/gemini-api/docs/models). Re-check these before each release;
+    // providers retire old IDs.
     val CLAUDE_OPTIONS = listOf(
-        AiModelOption("claude-sonnet-5", "Claude Sonnet 5", AiProvider.CLAUDE),
-        AiModelOption("claude-opus-4-8", "Claude Opus 4.8", AiProvider.CLAUDE, "Most capable, slower"),
-        AiModelOption("claude-haiku-4-5-20251001", "Claude Haiku 4.5", AiProvider.CLAUDE, "Fastest, cheapest")
+        AiModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5", AiProvider.CLAUDE, "Fast and capable (recommended)"),
+        AiModelOption("claude-opus-5-5", "Claude Opus 5.5", AiProvider.CLAUDE, "More capable, slower, costs more"),
+        AiModelOption("claude-fable-5-1", "Claude Fable 5.1", AiProvider.CLAUDE, "Most capable, slowest, highest cost"),
+        AiModelOption("claude-haiku-5-5", "Claude Haiku 5.5", AiProvider.CLAUDE, "Fastest, cheapest")
     )
     val GEMINI_OPTIONS = listOf(
-        AiModelOption("gemini-3.5-flash", "Gemini 3.5 Flash", AiProvider.GEMINI),
-        AiModelOption("gemini-3.1-pro-preview", "Gemini 3.1 Pro", AiProvider.GEMINI, "Preview — needs billing enabled"),
-        AiModelOption("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", AiProvider.GEMINI, "Cheapest, high-volume")
+        AiModelOption("gemini-3.8-flash", "Gemini 3.8 Flash", AiProvider.GEMINI, "Fast and capable (recommended)"),
+        AiModelOption("gemini-4-argon", "Gemini 4 Argon", AiProvider.GEMINI, "Flagship, most capable"),
+        AiModelOption("gemini-3.1-pro-preview", "Gemini 3.1 Pro", AiProvider.GEMINI, "Preview - needs billing enabled"),
+        AiModelOption("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", AiProvider.GEMINI, "Cheapest, high-volume")
     )
     val ALL = CLAUDE_OPTIONS + GEMINI_OPTIONS
     val DEFAULT = GEMINI_OPTIONS[0]

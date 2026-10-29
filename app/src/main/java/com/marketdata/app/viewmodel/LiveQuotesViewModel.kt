@@ -8,6 +8,7 @@ import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.data.repository.KiteRepository
 import com.marketdata.app.util.CsvWriter
+import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.util.NiftySymbols
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -157,14 +158,13 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val fileName = CsvWriter.generateQuoteFileName()
-                val docFile = androidx.documentfile.provider.DocumentFile
-                    .fromTreeUri(getApplication(), folderUri)
-                    ?.createFile("text/csv", fileName)
-
-                docFile?.uri?.let { uri ->
-                    CsvWriter.writeQuotesToUri(getApplication(), uri, quotes)
-                    update { copy(savedMessage = "Saved $fileName") }
+                val docUri = SaveFolder.createCsv(getApplication(), folderUri, fileName)
+                if (docUri == null) {
+                    update { copy(error = "Failed to create file in the save folder") }
+                    return@launch
                 }
+                CsvWriter.writeQuotesToUri(getApplication(), docUri, quotes)
+                update { copy(savedMessage = "Saved $fileName to ${SaveFolder.label(folderUri)}") }
             } catch (e: Exception) {
                 update { copy(error = "Save failed: ${e.message}") }
             }

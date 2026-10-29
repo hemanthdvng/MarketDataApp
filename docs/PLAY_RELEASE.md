@@ -6,7 +6,7 @@
 - Avoid "Nifty", "NSE", "Zerodha" or "Kite" in the Play title and icon. They are
   third-party trademarks and Play's impersonation policy can reject the listing.
   You may mention them in the description ("works with your Zerodha Kite Connect
-  account"). The in-app header currently says NIFTYBOT; consider renaming it too.
+  account"). The in-app header now says MarketData.
 
 ## 1. Create the upload key (one time, keep it safe)
 On a phone (Termux) or any machine with Java:

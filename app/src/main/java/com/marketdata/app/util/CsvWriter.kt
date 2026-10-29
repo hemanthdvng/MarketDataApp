@@ -19,7 +19,7 @@ object CsvWriter {
         candles: List<KiteCandle>,
         includeOI: Boolean
     ): Int {
-        context.contentResolver.openOutputStream(uri)?.use { os ->
+        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
             BufferedWriter(OutputStreamWriter(os)).use { writer ->
                 // Header
                 val header = if (includeOI)
@@ -51,7 +51,7 @@ object CsvWriter {
         includeOI: Boolean
     ): Int {
         var totalRows = 0
-        context.contentResolver.openOutputStream(uri)?.use { os ->
+        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
             BufferedWriter(OutputStreamWriter(os)).use { writer ->
                 val header = if (includeOI)
                     "Symbol,Timestamp,Open,High,Low,Close,Volume,OI"
@@ -82,7 +82,7 @@ object CsvWriter {
         uri: Uri,
         quotes: List<LiveQuoteDisplay>
     ) {
-        context.contentResolver.openOutputStream(uri)?.use { os ->
+        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
             BufferedWriter(OutputStreamWriter(os)).use { writer ->
                 writer.write("Symbol,LTP,Open,High,Low,PrevClose,Change,Change%,Volume,OI")
                 writer.newLine()
@@ -107,7 +107,7 @@ object CsvWriter {
         spotPrice: Double,
         rows: List<OptionChainRow>
     ): Int {
-        context.contentResolver.openOutputStream(uri)?.use { os ->
+        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
             BufferedWriter(OutputStreamWriter(os)).use { writer ->
                 writer.write("Underlying,Expiry,SpotPrice,Strike,IsATM,CE_Symbol,CE_LTP,CE_Bid,CE_Ask,CE_OI,CE_Volume,PE_Symbol,PE_LTP,PE_Bid,PE_Ask,PE_OI,PE_Volume")
                 writer.newLine()
@@ -138,7 +138,7 @@ object CsvWriter {
         entries: List<Pair<Triple<String, String, Double>, List<OptionChainRow>>> // (underlying, expiry, spot) -> rows
     ): Int {
         var totalRows = 0
-        context.contentResolver.openOutputStream(uri)?.use { os ->
+        context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
             BufferedWriter(OutputStreamWriter(os)).use { writer ->
                 writer.write("Underlying,Expiry,SpotPrice,Strike,IsATM,CE_Symbol,CE_LTP,CE_Bid,CE_Ask,CE_OI,CE_Volume,PE_Symbol,PE_LTP,PE_Bid,PE_Ask,PE_OI,PE_Volume")
                 writer.newLine()
