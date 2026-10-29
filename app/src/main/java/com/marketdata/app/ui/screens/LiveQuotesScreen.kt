@@ -61,8 +61,9 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
         InfoBanner(
             title = "BEST DURING MARKET HOURS",
             text = "Prices update while NSE is open (Mon-Fri, 9:15 AM to 3:30 PM IST). Outside " +
-                "those hours you will only see the last session's values. Live quotes also need " +
-                "the paid Kite Connect plan; the free Personal plan has no market data."
+                "those hours you will only see the last session's values. Zerodha lists live market " +
+                "data under its paid Kite Connect plan, not the free Personal API, so on a free " +
+                "plan quotes may come back empty or fail."
         )
         Spacer(Modifier.height(10.dp))
 
