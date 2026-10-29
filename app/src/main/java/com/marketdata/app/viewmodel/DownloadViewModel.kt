@@ -16,6 +16,7 @@ import com.marketdata.app.util.CsvReader
 import com.marketdata.app.util.CsvWriter
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
+import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.volumefilter.VolumeFilterMode
 import com.marketdata.app.volumefilter.VolumeFilterStore
 import com.marketdata.app.data.db.VolumeSnapshotEntity
@@ -63,6 +64,12 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(DownloadState())
     val state = _state.asStateFlow()
 
+    init {
+        // Start with the remembered folder, or Download/MarketData by default.
+        val folder = SaveFolder.current(app)
+        _state.value = _state.value.copy(folderUri = folder, folderName = SaveFolder.label(folder))
+    }
+
     fun setSelectionType(type: SelectionType) {
         updateState { copy(selectionType = type, symbolSearchQuery = "", symbolSearchResults = emptyList()) }
         if (type == SelectionType.ALL_NSE && _state.value.allNseSymbols.isEmpty()) {
@@ -86,7 +93,15 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     fun clearError() = updateState { copy(error = null, successMessage = null) }
 
     fun setFolder(uri: Uri, displayName: String) {
+        SaveFolder.remember(getApplication(), uri)
         updateState { copy(folderUri = uri, folderName = displayName) }
+    }
+
+    /** Forget a picked folder and go back to Download/MarketData. */
+    fun useDefaultFolder() {
+        SaveFolder.resetToDefault(getApplication())
+        val folder = SaveFolder.current(getApplication())
+        updateState { copy(folderUri = folder, folderName = SaveFolder.label(folder)) }
     }
 
     /** Refreshes the cached volume snapshot (one batched Kite quote call
@@ -327,10 +342,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                 val docUri: Uri = if (existingSyncFile != null) {
                     Uri.parse(existingSyncFile.filePath)
                 } else {
-                    androidx.documentfile.provider.DocumentFile
-                        .fromTreeUri(getApplication(), s.folderUri!!)
-                        ?.createFile("text/csv", CsvWriter.generateSyncFileName(intervalLabel))
-                        ?.uri
+                    SaveFolder.createCsv(getApplication(), s.folderUri!!, CsvWriter.generateSyncFileName(intervalLabel))
                         ?: run {
                             updateState { copy(isDownloading = false, error = "Failed to create file in selected folder") }
                             return@launch

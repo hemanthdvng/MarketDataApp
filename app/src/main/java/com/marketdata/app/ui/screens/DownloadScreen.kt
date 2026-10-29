@@ -29,9 +29,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.SelectionType
 import com.marketdata.app.ui.components.AppDatePickerDialog
+import com.marketdata.app.ui.components.InfoBanner
+import com.marketdata.app.ui.components.ScreenHeader
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
+import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.viewmodel.DownloadViewModel
 import com.marketdata.app.viewmodel.OcBulkMode
 import com.marketdata.app.viewmodel.OPTION_CHAIN_UNDERLYINGS
@@ -97,7 +100,13 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("DOWNLOAD HISTORICAL DATA", style = MaterialTheme.typography.headlineMedium, color = AccentBlue)
+        ScreenHeader("DOWNLOAD HISTORICAL DATA", subtitle = "NSE candles to CSV via Kite Connect")
+        InfoBanner(
+            title = "PAID KITE PLAN REQUIRED",
+            text = "Historical data works only with Zerodha's paid Kite Connect plan " +
+                "(currently Rs 500/month per API key). The free Personal API plan has no " +
+                "historical or live market data, so downloads will fail with it."
+        )
 
         // Selection Type
         SectionHeader("SELECTION TYPE")
@@ -262,6 +271,16 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
             Spacer(Modifier.width(8.dp))
             Text(if (state.folderUri == null) "SELECT FOLDER" else "📁 ${state.folderName}")
         }
+        Text(
+            if (state.folderUri == null) "Pick a folder where CSV files will be saved."
+            else "CSV files are saved here. Tap the button to choose another folder.",
+            color = TextMuted, style = MaterialTheme.typography.bodySmall
+        )
+        if (state.folderUri != null && !SaveFolder.isDefault(state.folderUri)) {
+            TextButton(onClick = { viewModel.useDefaultFolder() }) {
+                Text("Reset to ${SaveFolder.DEFAULT_LABEL}", color = AccentBlue, style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
         // Download Button
         Spacer(Modifier.height(8.dp))
@@ -355,8 +374,9 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
             }
             Button(
                 onClick = {
-                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                    ocBulkFolderLauncher.launch(intent)
+                    val folder = SaveFolder.current(context)
+                    if (folder != null) optionChainViewModel.downloadBulkChain(folder)
+                    else ocBulkFolderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
@@ -389,8 +409,9 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
             }
             Button(
                 onClick = {
-                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                    ocFolderLauncher.launch(intent)
+                    val folder = SaveFolder.current(context)
+                    if (folder != null) optionChainViewModel.downloadFullChain(folder)
+                    else ocFolderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.marketdata.app.data.models.OptionChainRow
 import com.marketdata.app.data.repository.KiteRepository
 import com.marketdata.app.util.CsvWriter
+import com.marketdata.app.util.SaveFolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -314,10 +315,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
             update { copy(isExporting = true, exportError = null, exportMessage = null) }
             try {
                 val fileName = CsvWriter.generateOptionChainFileName(s.underlying, s.selectedExpiry)
-                val docUri = androidx.documentfile.provider.DocumentFile
-                    .fromTreeUri(getApplication(), folderUri)
-                    ?.createFile("text/csv", fileName)
-                    ?.uri
+                val docUri = SaveFolder.createCsv(getApplication(), folderUri, fileName)
                 if (docUri == null) {
                     update { copy(isExporting = false, exportError = "Failed to create file in selected folder") }
                     return@launch
@@ -412,10 +410,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 val (allRows, spot) = result
 
                 val fileName = CsvWriter.generateOptionChainFileName(s.underlying, s.selectedExpiry)
-                val docUri = androidx.documentfile.provider.DocumentFile
-                    .fromTreeUri(getApplication(), folderUri)
-                    ?.createFile("text/csv", fileName)
-                    ?.uri
+                val docUri = SaveFolder.createCsv(getApplication(), folderUri, fileName)
                 if (docUri == null) {
                     update { copy(isExporting = false, exportError = "Failed to create file in selected folder") }
                     return@launch
@@ -529,10 +524,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                     OcBulkMode.SINGLE -> "chain"
                 }
                 val fileName = CsvWriter.generateBulkOptionChainFileName(label)
-                val docUri = androidx.documentfile.provider.DocumentFile
-                    .fromTreeUri(getApplication(), folderUri)
-                    ?.createFile("text/csv", fileName)
-                    ?.uri
+                val docUri = SaveFolder.createCsv(getApplication(), folderUri, fileName)
                 if (docUri == null) {
                     update { copy(isBulkDownloading = false, exportError = "Failed to create file in selected folder") }
                     return@launch

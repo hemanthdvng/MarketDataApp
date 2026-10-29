@@ -151,7 +151,7 @@ risk of loss and decisions are their own.
 
             val body = JSONObject().apply {
                 put("model", modelId)
-                put("max_tokens", 2048)
+                put("max_tokens", 4096)
                 put("system", systemPrompt)
                 put("messages", messagesJson)
             }
@@ -172,8 +172,20 @@ risk of loss and decisions are their own.
             }
 
             val json = JSONObject(responseBody)
-            val content = json.getJSONArray("content").getJSONObject(0).getString("text")
-            Result.success(content)
+            // Newer Claude models can put a "thinking" block before the answer, so
+            // the first block is not always the text. Join every text block.
+            val blocks = json.getJSONArray("content")
+            val answer = StringBuilder()
+            for (i in 0 until blocks.length()) {
+                val block = blocks.getJSONObject(i)
+                if (block.optString("type") == "text") answer.append(block.optString("text"))
+            }
+            if (answer.isEmpty()) {
+                val reason = json.optString("stop_reason", "")
+                val extra = if (reason.isNotEmpty()) " (stop_reason: $reason)" else ""
+                return@withContext Result.failure(Exception("Claude returned no text$extra. Try again."))
+            }
+            Result.success(answer.toString())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

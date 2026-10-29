@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.OptionChainRow
 import com.marketdata.app.ui.theme.*
+import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.viewmodel.OcBulkMode
 import com.marketdata.app.viewmodel.OPTION_CHAIN_REFRESH_INTERVALS
 import com.marketdata.app.viewmodel.OPTION_CHAIN_SPREAD_COUNTS
@@ -153,8 +154,9 @@ fun OptionChainScreen(viewModel: OptionChainViewModel) {
             item {
                 Button(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                        bulkFolderLauncher.launch(intent)
+                        val folder = SaveFolder.current(context)
+                        if (folder != null) viewModel.downloadBulkChain(folder)
+                        else bulkFolderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
                     },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
@@ -235,8 +237,9 @@ fun OptionChainScreen(viewModel: OptionChainViewModel) {
             item {
                 OutlinedButton(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                        folderLauncher.launch(intent)
+                        val folder = SaveFolder.current(context)
+                        if (folder != null) viewModel.exportVisibleChain(folder)
+                        else folderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = state.rows.isNotEmpty() && !state.isExporting,

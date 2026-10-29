@@ -22,6 +22,7 @@ import com.marketdata.app.data.models.AiModelOption
 import com.marketdata.app.data.models.AiModels
 import com.marketdata.app.data.models.AiProvider
 import com.marketdata.app.data.models.ThinkingLevel
+import com.marketdata.app.ui.components.InfoBanner
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AgentViewModel
 import com.marketdata.app.viewmodel.OptionChainViewModel
@@ -65,6 +66,8 @@ fun AgentScreen(viewModel: AgentViewModel, optionChainViewModel: OptionChainView
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("AI AGENT", style = MaterialTheme.typography.headlineMedium, color = AccentBlue)
+            Spacer(Modifier.width(8.dp))
+            Text("BETA", style = MaterialTheme.typography.labelLarge, color = AccentAmber)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { showSettings = !showSettings }) {
                 Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextSecondary)
@@ -73,6 +76,13 @@ fun AgentScreen(viewModel: AgentViewModel, optionChainViewModel: OptionChainView
                 Icon(Icons.Default.DeleteOutline, contentDescription = "Clear", tint = TextSecondary)
             }
         }
+
+        InfoBanner(
+            title = "BETA",
+            text = "The AI Agent is still being tested. Answers can be wrong or incomplete and are " +
+                "not investment advice. It uses your own Claude or Gemini API key, which may be billed by the provider.",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
 
         // Model selector
         var modelMenuExpanded by remember { mutableStateOf(false) }

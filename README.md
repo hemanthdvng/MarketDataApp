@@ -1,4 +1,4 @@
-# MarketDataApp (Nifty Bot)
+# MarketData
 
 Android app for downloading NSE historical market data via Kite Connect API, viewing live quotes, and getting AI-powered stock analysis using Claude or Gemini.
 

@@ -2,7 +2,10 @@ name: Build APK and AAB
 
 on:
   push:
-    branches: [ main, play-release-prep ]
+    branches: [ main ]
+  # Build every pull request too, so compile errors show up before merging.
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
