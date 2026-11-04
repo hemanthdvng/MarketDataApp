@@ -71,6 +71,15 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
                 "plan quotes may come back empty or fail."
         )
         Spacer(Modifier.height(10.dp))
+        if (state.isDemo) {
+            InfoBanner(
+                title = "SAMPLE DATA",
+                text = "These prices are made up so you can see how the screen works. " +
+                    "Press FETCH to load real quotes with your Kite login.",
+                accent = AccentBlue
+            )
+            Spacer(Modifier.height(10.dp))
+        }
 
         AppTextField(
             label = "Symbols (comma separated)",
@@ -93,6 +102,14 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             else { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("FETCH") }
         }
 
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { viewModel.loadDemo() },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
+        ) {
+            Text("TRY SAMPLE DATA (no login needed)")
+        }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(

@@ -18,8 +18,8 @@ val AccentGreen = Color(0xFF00C851)
 val AccentRed = Color(0xFFFF4444)
 val AccentAmber = Color(0xFFFFBB33)
 val TextPrimary = Color(0xFFE8E8E8)
-val TextSecondary = Color(0xFF888888)
-val TextMuted = Color(0xFF444444)
+val TextSecondary = Color(0xFFB8B8B8)
+val TextMuted = Color(0xFF909090)
 
 private val DarkColorScheme = darkColorScheme(
     primary = AccentBlue,
