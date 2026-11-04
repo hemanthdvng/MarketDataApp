@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.ui.theme.AccentAmber
 import com.marketdata.app.ui.theme.AccentBlue
+import com.marketdata.app.ui.theme.AccentRed
+import com.marketdata.app.ui.theme.TextPrimary
 import com.marketdata.app.ui.theme.DarkCard
 import com.marketdata.app.ui.theme.TextMuted
 import com.marketdata.app.ui.theme.TextSecondary
@@ -56,6 +58,25 @@ fun ScreenHeader(title: String, modifier: Modifier = Modifier, subtitle: String?
         Text(title, style = MaterialTheme.typography.headlineMedium, color = AccentBlue)
         if (subtitle != null) {
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+        }
+    }
+}
+
+/** Red notice for a failed action: says what went wrong and what to do, in plain words. */
+@Composable
+fun ErrorBanner(text: String, modifier: Modifier = Modifier, title: String = "COULD NOT COMPLETE") {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, AccentRed.copy(alpha = 0.6f), MaterialTheme.shapes.medium)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(title, color = AccentRed, style = MaterialTheme.typography.labelLarge)
+            Text(text, color = TextPrimary, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

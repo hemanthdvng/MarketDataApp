@@ -12,6 +12,7 @@ import com.marketdata.app.data.models.AiModels
 import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.models.OptionChainRow
 import com.marketdata.app.data.models.ThinkingLevel
+import com.marketdata.app.util.FriendlyError
 import com.marketdata.app.data.db.AppDatabase
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.data.repository.AgentRepository
@@ -135,7 +136,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         resolver.openInputStream(uri)?.use { it.readBytes() }
                     }
                     if (bytes == null) {
-                        update { copy(isReadingFile = false, error = "Couldn't read that file") }
+                        update { copy(isReadingFile = false, error = "Could not read that file. Try a different file.") }
                         return@launch
                     }
                     if (bytes.size > 15 * 1024 * 1024) {
@@ -155,7 +156,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     }
                     if (text == null) {
-                        update { copy(isReadingFile = false, error = "Couldn't read that file") }
+                        update { copy(isReadingFile = false, error = "Could not read that file. Try a different file.") }
                         return@launch
                     }
                     val trimmed = if (text.length > 30_000) text.take(30_000) + "\n...[truncated]" else text
@@ -168,7 +169,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } catch (e: Exception) {
-                update { copy(isReadingFile = false, error = "Couldn't read file: ${e.message}") }
+                update { copy(isReadingFile = false, error = "Could not read that file. Try a different file.") }
             }
         }
     }
@@ -197,7 +198,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             com.marketdata.app.data.models.AiProvider.GEMINI -> prefs.geminiApiKey.isNotEmpty()
         }
         if (!hasKey) {
-            update { copy(error = "No ${model.provider} API key set. Add it on the Login tab.") }
+            update { copy(error = FriendlyError.ai("api key not set", providerName(model.provider))) }
             return
         }
 
@@ -252,7 +253,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     update { copy(messages = messages + assistantMsg, isLoading = false) }
                 },
                 onFailure = { e ->
-                    val msg = e.message?.takeIf { it.isNotBlank() } ?: "AI error (${e::class.java.simpleName})"
+                    val msg = FriendlyError.ai(e, providerName(_state.value.selectedModel.provider))
                     update { copy(isLoading = false, error = msg) }
                 }
             )
@@ -266,7 +267,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 .split(",").map { it.trim() }.filter { it.isNotBlank() }
             val result = kiteRepo.fetchQuotes(symbols)
             result.onSuccess { q -> update { copy(liveQuotes = q, fetchingQuotes = false) } }
-            result.onFailure { update { copy(fetchingQuotes = false) } }
+            result.onFailure { e -> update { copy(fetchingQuotes = false, error = FriendlyError.kite(e)) } }
         }
     }
 
@@ -290,4 +291,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         }
         return sb.toString()
     }
+
+    private fun providerName(p: com.marketdata.app.data.models.AiProvider) =
+        if (p == com.marketdata.app.data.models.AiProvider.CLAUDE) "Claude" else "Gemini"
 }

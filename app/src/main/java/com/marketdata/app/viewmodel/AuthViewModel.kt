@@ -1,5 +1,6 @@
 package com.marketdata.app.viewmodel
 
+import com.marketdata.app.util.FriendlyError
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -61,7 +62,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 onFailure = { e ->
                     _state.value = _state.value.copy(
                         isLoading = false,
-                        error = e.message ?: "Login failed"
+                        error = FriendlyError.login(e.message)
                     )
                 }
             )
@@ -82,7 +83,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 onFailure = { e ->
                     _state.value = _state.value.copy(
                         isRefreshingInstruments = false,
-                        error = "Instrument list failed to load: ${e.message}"
+                        error = FriendlyError.kite(e)
                     )
                 }
             )
