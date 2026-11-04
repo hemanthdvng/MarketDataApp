@@ -31,7 +31,8 @@ data class LiveQuoteState(
     val refreshIntervalSeconds: Int = 10,
     val lastUpdatedAt: Long = 0L,
     val isLoadingAllInstruments: Boolean = false,
-    val allInstrumentsProgress: String = ""
+    val allInstrumentsProgress: String = "",
+    val isDemo: Boolean = false
 )
 
 class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
@@ -88,6 +89,30 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { fetchQuotesOnce() }
     }
 
+    /** Shows made-up sample quotes so anyone can try the screen without Kite keys. */
+    fun loadDemo() {
+        stopPolling()
+        val sample = listOf(
+            Triple("RELIANCE", 2890.40, 2874.15), Triple("TCS", 4012.75, 4031.20),
+            Triple("INFY", 1875.30, 1862.90), Triple("HDFCBANK", 1702.55, 1710.05),
+            Triple("ICICIBANK", 1248.90, 1239.40), Triple("SBIN", 812.35, 806.10),
+            Triple("ITC", 468.20, 471.55), Triple("LT", 3655.00, 3629.85)
+        ).mapIndexed { i, (sym, ltp, prevClose) ->
+            val change = ltp - prevClose
+            LiveQuoteDisplay(
+                symbol = sym, ltp = ltp,
+                open = prevClose + change * 0.3, high = maxOf(ltp, prevClose) * 1.006,
+                low = minOf(ltp, prevClose) * 0.994, close = prevClose,
+                change = change, changePct = change / prevClose * 100.0,
+                volume = 1_200_000L + i * 850_000L, oi = 0.0
+            )
+        }
+        update {
+            copy(quotes = sample, isDemo = true, error = null, savedMessage = null,
+                autoRefreshEnabled = false, isLoading = false, lastUpdatedAt = System.currentTimeMillis())
+        }
+    }
+
     /** Turns the periodic auto-refresh loop on/off. While on, quotes are
      *  re-fetched every [LiveQuoteState.refreshIntervalSeconds] using whatever
      *  symbols are currently in the input field. */
@@ -127,7 +152,7 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
-        update { copy(isLoading = true, error = null) }
+        update { copy(isLoading = true, error = null, isDemo = false) }
 
         // Batch in groups of 50 (Kite limit per request)
         val allQuotes = mutableListOf<LiveQuoteDisplay>()
@@ -154,6 +179,10 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
     fun saveToCSV(folderUri: Uri) {
         val quotes = _state.value.quotes
         if (quotes.isEmpty()) return
+        if (_state.value.isDemo) {
+            update { copy(error = "These are sample values, so there is nothing real to save. Fetch live quotes first.") }
+            return
+        }
 
         viewModelScope.launch {
             try {

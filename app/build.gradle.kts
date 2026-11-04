@@ -16,7 +16,7 @@ android {
         // Play rejects an upload whose versionCode was already used, so CI
         // stamps each build with the GitHub run number (always increasing).
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-        versionName = "1.1"
+        versionName = "1.2.0"
     }
 
     // Upload-key signing for Play. CI supplies these from GitHub secrets

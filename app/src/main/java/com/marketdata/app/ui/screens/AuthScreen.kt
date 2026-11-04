@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.marketdata.app.ui.components.InfoBanner
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AuthViewModel
 
@@ -60,6 +61,23 @@ fun AuthScreen(
                 style = MaterialTheme.typography.bodySmall
             )
         }
+
+        InfoBanner(
+            title = "NO KEYS YET? LOOK AROUND FIRST",
+            accent = AccentBlue,
+            text = "Open the Live tab and press TRY SAMPLE DATA to see how quotes look, no login " +
+                "needed. Live, Download and Options need a Kite Connect login to show real data."
+        )
+
+        InfoBanner(
+            title = "HOW TO GET YOUR KEYS",
+            accent = AccentBlue,
+            text = "Kite: sign in at developers.kite.trade, create an app, then copy its API key " +
+                "and secret here. Set the app's redirect URL to http://127.0.0.1. " +
+                "Claude (optional): console.anthropic.com, API keys. " +
+                "Gemini (optional): aistudio.google.com, Get API key. " +
+                "Keys stay on your phone, encrypted."
+        )
 
         Spacer(Modifier.height(8.dp))
 

@@ -55,7 +55,12 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(DarkBackground).padding(16.dp)) {
+    // One scrolling list for the whole screen: the controls are the first item and
+    // the quotes follow, so everything scrolls together. (A plain Column here left
+    // the quote list pushed off-screen with no way to reach it.)
+    LazyColumn(modifier = Modifier.fillMaxSize().background(DarkBackground).padding(16.dp)) {
+        item {
+        Column {
         ScreenHeader("LIVE QUOTES", subtitle = "Latest prices for the symbols you choose")
         Spacer(Modifier.height(10.dp))
         InfoBanner(
@@ -66,6 +71,15 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
                 "plan quotes may come back empty or fail."
         )
         Spacer(Modifier.height(10.dp))
+        if (state.isDemo) {
+            InfoBanner(
+                title = "SAMPLE DATA",
+                text = "These prices are made up so you can see how the screen works. " +
+                    "Press FETCH to load real quotes with your Kite login.",
+                accent = AccentBlue
+            )
+            Spacer(Modifier.height(10.dp))
+        }
 
         AppTextField(
             label = "Symbols (comma separated)",
@@ -88,6 +102,14 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             else { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("FETCH") }
         }
 
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { viewModel.loadDemo() },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
+        ) {
+            Text("TRY SAMPLE DATA (no login needed)")
+        }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
@@ -184,29 +206,34 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
         }
 
         Spacer(Modifier.height(12.dp))
+        }
+        }
 
         if (displayedQuotes.isNotEmpty()) {
-            // Header row
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("SYMBOL (${displayedQuotes.size}/${state.quotes.size})", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1.3f))
-                Text("LTP", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
-                Text("CHG%", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
-                Text("VOL", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
-            }
-            Divider(color = DarkBorder)
-
-            LazyColumn {
-                items(displayedQuotes) { quote ->
-                    QuoteRow(quote)
-                    Divider(color = DarkBorder, thickness = 0.5.dp)
+            item {
+                Column {
+                    // Header row
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("SYMBOL (${displayedQuotes.size}/${state.quotes.size})", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1.3f))
+                        Text("LTP", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
+                        Text("CHG%", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
+                        Text("VOL", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
+                    }
+                    Divider(color = DarkBorder)
                 }
             }
+            items(displayedQuotes) { quote ->
+                QuoteRow(quote)
+                Divider(color = DarkBorder, thickness = 0.5.dp)
+            }
         } else {
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Text("No quotes loaded", color = TextMuted, style = MaterialTheme.typography.bodyMedium)
+            item {
+                Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
+                    Text("No quotes loaded", color = TextMuted, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     }
