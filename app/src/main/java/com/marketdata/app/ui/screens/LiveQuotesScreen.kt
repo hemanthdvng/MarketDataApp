@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.LiveQuoteDisplay
+import com.marketdata.app.ui.components.ErrorBanner
 import com.marketdata.app.ui.components.InfoBanner
 import com.marketdata.app.ui.components.ScreenHeader
 import com.marketdata.app.ui.theme.*
@@ -71,16 +72,6 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
                 "plan quotes may come back empty or fail."
         )
         Spacer(Modifier.height(10.dp))
-        if (state.isDemo) {
-            InfoBanner(
-                title = "SAMPLE DATA",
-                text = "These prices are made up so you can see how the screen works. " +
-                    "Press FETCH to load real quotes with your Kite login.",
-                accent = AccentBlue
-            )
-            Spacer(Modifier.height(10.dp))
-        }
-
         AppTextField(
             label = "Symbols (comma separated)",
             value = state.symbolInput,
@@ -102,14 +93,12 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             else { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("FETCH") }
         }
 
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = { viewModel.loadDemo() },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
-        ) {
-            Text("TRY SAMPLE DATA (no login needed)")
+        // Shown right under the button that caused it, so it is seen immediately.
+        state.error?.let {
+            Spacer(Modifier.height(8.dp))
+            ErrorBanner(text = it, title = "COULD NOT LOAD QUOTES")
         }
+
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
@@ -192,12 +181,6 @@ fun LiveQuotesScreen(viewModel: LiveQuotesViewModel) {
             }
         }
 
-        state.error?.let {
-            Spacer(Modifier.height(8.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000))) {
-                Text(it, color = AccentRed, modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
-            }
-        }
         state.savedMessage?.let {
             Spacer(Modifier.height(8.dp))
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF001A00))) {

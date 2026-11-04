@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.SelectionType
 import com.marketdata.app.ui.components.AppDatePickerDialog
+import com.marketdata.app.ui.components.ErrorBanner
 import com.marketdata.app.ui.components.InfoBanner
 import com.marketdata.app.ui.components.ScreenHeader
 import com.marketdata.app.ui.theme.*
@@ -310,11 +311,7 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
             Text(state.progressText, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
         }
 
-        state.error?.let {
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)), modifier = Modifier.fillMaxWidth()) {
-                Text(it, color = AccentRed, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        state.error?.let { ErrorBanner(text = it, title = "COULD NOT DOWNLOAD") }
         state.successMessage?.let {
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF001A00)), modifier = Modifier.fillMaxWidth()) {
                 Text(it, color = AccentGreen, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
@@ -431,11 +428,7 @@ fun DownloadScreen(viewModel: DownloadViewModel, optionChainViewModel: OptionCha
                 Text(it, color = AccentGreen, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
             }
         }
-        ocState.exportError?.let {
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)), modifier = Modifier.fillMaxWidth()) {
-                Text(it, color = AccentRed, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        ocState.exportError?.let { ErrorBanner(text = it, title = "COULD NOT DOWNLOAD OPTION CHAIN") }
 
         Spacer(Modifier.height(40.dp))
     }
@@ -461,7 +454,16 @@ fun SelectionChip(label: String, selected: Boolean, onClick: () -> Unit) {
     FilterChip(
         selected = selected,
         onClick = onClick,
-        label = { Text(label, style = MaterialTheme.typography.bodySmall) },
+        // The text style carries its own colour, so set the colour here or the
+        // selected label ends up dark-on-blue and cannot be read.
+        label = {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (selected) Color.White else TextSecondary,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            )
+        },
         colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = AccentBlue,
             selectedLabelColor = Color.White,

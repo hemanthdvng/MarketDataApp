@@ -8,6 +8,7 @@ import com.marketdata.app.data.models.LiveQuoteDisplay
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.data.repository.KiteRepository
 import com.marketdata.app.util.CsvWriter
+import com.marketdata.app.util.FriendlyError
 import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.util.NiftySymbols
 import kotlinx.coroutines.Job
@@ -31,8 +32,7 @@ data class LiveQuoteState(
     val refreshIntervalSeconds: Int = 10,
     val lastUpdatedAt: Long = 0L,
     val isLoadingAllInstruments: Boolean = false,
-    val allInstrumentsProgress: String = "",
-    val isDemo: Boolean = false
+    val allInstrumentsProgress: String = ""
 )
 
 class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
@@ -60,13 +60,22 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
      *  reusing fetchQuotesOnce/symbolInput) so progress can be shown while
      *  it works through the batches. */
     fun loadAllInstruments() {
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            update { copy(error = msg) }
+            return
+        }
         viewModelScope.launch {
             update { copy(isLoadingAllInstruments = true, error = null, isLoading = true) }
             try {
-                if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                if (repo.instrumentsNeedRefresh()) {
+                    repo.refreshInstruments().onFailure { e ->
+                        update { copy(isLoadingAllInstruments = false, isLoading = false, error = FriendlyError.kite(e)) }
+                        return@launch
+                    }
+                }
                 val symbols = repo.getAllNseEquitySymbols()
                 if (symbols.isEmpty()) {
-                    update { copy(isLoadingAllInstruments = false, isLoading = false, error = "No instruments found - try refreshing instruments") }
+                    update { copy(isLoadingAllInstruments = false, isLoading = false, error = "The instrument list is empty. Open the Login tab and tap REFRESH INSTRUMENT LIST, then try again.") }
                     return@launch
                 }
                 update { copy(symbolInput = symbols.joinToString(","), showNifty50 = true) }
@@ -77,10 +86,10 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
                     update { copy(quotes = q, isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", lastUpdatedAt = System.currentTimeMillis()) }
                 }
                 result.onFailure { e ->
-                    update { copy(isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", error = e.message ?: "Failed to fetch quotes") }
+                    update { copy(isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", error = FriendlyError.kite(e)) }
                 }
             } catch (e: Exception) {
-                update { copy(isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", error = e.message ?: "Failed to load instrument list") }
+                update { copy(isLoading = false, isLoadingAllInstruments = false, allInstrumentsProgress = "", error = FriendlyError.kite(e)) }
             }
         }
     }
@@ -89,29 +98,6 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { fetchQuotesOnce() }
     }
 
-    /** Shows made-up sample quotes so anyone can try the screen without Kite keys. */
-    fun loadDemo() {
-        stopPolling()
-        val sample = listOf(
-            Triple("RELIANCE", 2890.40, 2874.15), Triple("TCS", 4012.75, 4031.20),
-            Triple("INFY", 1875.30, 1862.90), Triple("HDFCBANK", 1702.55, 1710.05),
-            Triple("ICICIBANK", 1248.90, 1239.40), Triple("SBIN", 812.35, 806.10),
-            Triple("ITC", 468.20, 471.55), Triple("LT", 3655.00, 3629.85)
-        ).mapIndexed { i, (sym, ltp, prevClose) ->
-            val change = ltp - prevClose
-            LiveQuoteDisplay(
-                symbol = sym, ltp = ltp,
-                open = prevClose + change * 0.3, high = maxOf(ltp, prevClose) * 1.006,
-                low = minOf(ltp, prevClose) * 0.994, close = prevClose,
-                change = change, changePct = change / prevClose * 100.0,
-                volume = 1_200_000L + i * 850_000L, oi = 0.0
-            )
-        }
-        update {
-            copy(quotes = sample, isDemo = true, error = null, savedMessage = null,
-                autoRefreshEnabled = false, isLoading = false, lastUpdatedAt = System.currentTimeMillis())
-        }
-    }
 
     /** Turns the periodic auto-refresh loop on/off. While on, quotes are
      *  re-fetched every [LiveQuoteState.refreshIntervalSeconds] using whatever
@@ -148,11 +134,17 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
             .filter { it.isNotBlank() }
 
         if (symbols.isEmpty()) {
-            update { copy(error = "Enter at least one symbol") }
+            update { copy(error = "Type at least one stock symbol first, for example RELIANCE,TCS,INFY, or use the NIFTY 50 button.") }
             return
         }
 
-        update { copy(isLoading = true, error = null, isDemo = false) }
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            stopPolling()
+            update { copy(error = msg, autoRefreshEnabled = false, isLoading = false) }
+            return
+        }
+
+        update { copy(isLoading = true, error = null) }
 
         // Batch in groups of 50 (Kite limit per request)
         val allQuotes = mutableListOf<LiveQuoteDisplay>()
@@ -162,7 +154,13 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
             val result = repo.fetchQuotes(batch)
             result.onSuccess { allQuotes.addAll(it) }
             result.onFailure { e ->
-                update { copy(isLoading = false, error = e.message) }
+                // Login / plan / rate-limit problems repeat, so stop auto-refresh too.
+                val fatal = FriendlyError.isFatalForBulk(e.message)
+                if (fatal) stopPolling()
+                update {
+                    copy(isLoading = false, error = FriendlyError.kite(e),
+                        autoRefreshEnabled = if (fatal) false else autoRefreshEnabled)
+                }
                 return
             }
         }
@@ -179,23 +177,19 @@ class LiveQuotesViewModel(app: Application) : AndroidViewModel(app) {
     fun saveToCSV(folderUri: Uri) {
         val quotes = _state.value.quotes
         if (quotes.isEmpty()) return
-        if (_state.value.isDemo) {
-            update { copy(error = "These are sample values, so there is nothing real to save. Fetch live quotes first.") }
-            return
-        }
 
         viewModelScope.launch {
             try {
                 val fileName = CsvWriter.generateQuoteFileName()
                 val docUri = SaveFolder.createCsv(getApplication(), folderUri, fileName)
                 if (docUri == null) {
-                    update { copy(error = "Failed to create file in the save folder") }
+                    update { copy(error = "Could not create the file in your save folder. Pick another folder on the Files or Data tab and try again.") }
                     return@launch
                 }
                 CsvWriter.writeQuotesToUri(getApplication(), docUri, quotes)
                 update { copy(savedMessage = "Saved $fileName to ${SaveFolder.label(folderUri)}") }
             } catch (e: Exception) {
-                update { copy(error = "Save failed: ${e.message}") }
+                update { copy(error = "Could not save the file. Check that your save folder still exists and has free space.") }
             }
         }
     }

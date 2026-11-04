@@ -25,6 +25,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.data.models.OptionChainRow
+import com.marketdata.app.ui.components.ErrorBanner
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.viewmodel.OcBulkMode
@@ -264,11 +265,7 @@ fun OptionChainScreen(viewModel: OptionChainViewModel) {
             }
         }
         state.exportError?.let {
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)), modifier = Modifier.fillMaxWidth()) {
-                    Text(it, color = AccentRed, modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            item { ErrorBanner(text = it, title = "COULD NOT DOWNLOAD OPTION CHAIN") }
         }
 
         if (state.bulkMode == OcBulkMode.SINGLE) {
@@ -324,11 +321,7 @@ fun OptionChainScreen(viewModel: OptionChainViewModel) {
             }
 
             state.error?.let {
-                item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)), modifier = Modifier.fillMaxWidth()) {
-                        Text(it, color = AccentRed, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-                    }
-                }
+                item { ErrorBanner(text = it, title = "COULD NOT LOAD OPTION CHAIN") }
             }
 
             if (state.rows.isNotEmpty()) {

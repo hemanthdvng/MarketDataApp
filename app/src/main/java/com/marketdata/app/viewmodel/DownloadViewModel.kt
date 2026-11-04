@@ -16,6 +16,7 @@ import com.marketdata.app.util.CsvReader
 import com.marketdata.app.util.CsvWriter
 import com.marketdata.app.util.Extensions
 import com.marketdata.app.util.NiftySymbols
+import com.marketdata.app.util.FriendlyError
 import com.marketdata.app.util.SaveFolder
 import com.marketdata.app.volumefilter.VolumeFilterMode
 import com.marketdata.app.volumefilter.VolumeFilterStore
@@ -76,11 +77,16 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope.launch {
                 updateState { copy(isLoadingAllNseSymbols = true) }
                 try {
-                    if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                    if (repo.instrumentsNeedRefresh()) {
+                        repo.refreshInstruments().onFailure { e ->
+                            updateState { copy(isLoadingAllNseSymbols = false, error = FriendlyError.kite(e)) }
+                            return@launch
+                        }
+                    }
                     val syms = repo.getAllNseEquitySymbols()
                     updateState { copy(allNseSymbols = syms, isLoadingAllNseSymbols = false) }
                 } catch (e: Exception) {
-                    updateState { copy(isLoadingAllNseSymbols = false, error = "Failed to load instrument list: ${e.message}") }
+                    updateState { copy(isLoadingAllNseSymbols = false, error = FriendlyError.kite(e)) }
                 }
             }
         }
@@ -109,13 +115,22 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
      *  screens' volume filters. Run this at least once before turning the
      *  ALL_NSE volume filter on. */
     fun refreshVolumeSnapshot() {
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            updateState { copy(error = msg) }
+            return
+        }
         viewModelScope.launch {
             updateState { copy(isRefreshingVolumes = true, error = null, successMessage = null) }
             try {
-                if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                if (repo.instrumentsNeedRefresh()) {
+                    repo.refreshInstruments().onFailure { e ->
+                        updateState { copy(isRefreshingVolumes = false, error = FriendlyError.kite(e)) }
+                        return@launch
+                    }
+                }
                 val symbols = repo.getAllNseEquitySymbols()
                 if (symbols.isEmpty()) {
-                    updateState { copy(isRefreshingVolumes = false, error = "No instruments found - try refreshing instruments on the Login tab") }
+                    updateState { copy(isRefreshingVolumes = false, error = "The instrument list is empty. Open the Login tab and tap REFRESH INSTRUMENT LIST, then try again.") }
                     return@launch
                 }
                 val result = repo.fetchQuotesBatched(symbols) { done, total ->
@@ -133,10 +148,10 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 result.onFailure { e ->
-                    updateState { copy(isRefreshingVolumes = false, progressText = "", error = "Volume refresh failed: ${e.message}") }
+                    updateState { copy(isRefreshingVolumes = false, progressText = "", error = FriendlyError.kite(e)) }
                 }
             } catch (e: Exception) {
-                updateState { copy(isRefreshingVolumes = false, progressText = "", error = "Volume refresh failed: ${e.message}") }
+                updateState { copy(isRefreshingVolumes = false, progressText = "", error = FriendlyError.kite(e)) }
             }
         }
     }
@@ -189,14 +204,18 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startDownload() {
         val s = _state.value
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            updateState { copy(error = msg) }
+            return
+        }
         if (s.folderUri == null) {
-            updateState { copy(error = "Please select a folder first") }
+            updateState { copy(error = "Choose a folder to save the file in first.") }
             return
         }
 
         var symbols = getSymbols(s)
         if (symbols.isEmpty()) {
-            updateState { copy(error = "Please select at least one symbol") }
+            updateState { copy(error = "Pick at least one stock or index to download first.") }
             return
         }
 
@@ -253,7 +272,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                     // Try refreshing instruments
                     val refreshResult = repo.refreshInstruments()
                     refreshResult.onFailure { e ->
-                        updateState { copy(isDownloading = false, error = "Could not load instrument list: ${e.message}") }
+                        updateState { copy(isDownloading = false, error = FriendlyError.kite(e)) }
                     }
                     if (refreshResult.isFailure) return@launch
                     tokenMap.putAll(repo.getTokensForSymbols(symbols))
@@ -263,7 +282,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             if (tokenMap.isEmpty()) {
-                updateState { copy(isDownloading = false, error = "No instrument tokens found. Try refreshing instruments.") }
+                updateState { copy(isDownloading = false, error = "Could not find those symbols in the instrument list. Open the Login tab, tap REFRESH INSTRUMENT LIST, then try again.") }
                 return@launch
             }
 
@@ -325,13 +344,19 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 result.onFailure { e ->
-                    updateState { copy(progressText = "Warning: failed $sym — ${e.message}") }
+                    // Login, plan or rate-limit problems repeat for every symbol, so stop
+                    // and say why instead of grinding through the whole list.
+                    if (FriendlyError.isFatalForBulk(e.message) || totalSymbols == 1) {
+                        updateState { copy(isDownloading = false, progressText = "", error = FriendlyError.kite(e)) }
+                        return@launch
+                    }
+                    updateState { copy(progressText = "Skipped $sym (${FriendlyError.kite(e)})") }
                 }
                 symbolsDone++
             }
 
             if (mergedData.isEmpty()) {
-                updateState { copy(isDownloading = false, error = "No data downloaded") }
+                updateState { copy(isDownloading = false, error = "No candles came back for the dates and interval you chose. Check the date range: markets are closed on weekends and holidays, and short intervals only go back a limited time.") }
                 return@launch
             }
 
@@ -344,7 +369,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     SaveFolder.createCsv(getApplication(), s.folderUri!!, CsvWriter.generateSyncFileName(intervalLabel))
                         ?: run {
-                            updateState { copy(isDownloading = false, error = "Failed to create file in selected folder") }
+                            updateState { copy(isDownloading = false, error = "Could not create the file in your save folder. Choose another folder and try again.") }
                             return@launch
                         }
                 }
@@ -381,7 +406,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 updateState { copy(isDownloading = false, progress = 1f, successMessage = summary) }
             } catch (e: Exception) {
-                updateState { copy(isDownloading = false, error = "Write failed: ${e.message}") }
+                updateState { copy(isDownloading = false, error = "Could not save the file. Check that your save folder still exists and the phone has free space.") }
             }
         }
     }

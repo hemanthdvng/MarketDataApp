@@ -13,13 +13,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.marketdata.app.ui.components.InfoBanner
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AuthViewModel
+
+/** Step-by-step guide for getting the Kite, Claude and Gemini keys (edit docs/GETTING_STARTED.md to change it, no app update needed). */
+private const val KEY_GUIDE_URL = "https://github.com/hemanthdvng/MarketDataApp/blob/main/docs/GETTING_STARTED.md"
 
 @Composable
 fun AuthScreen(
@@ -62,22 +65,16 @@ fun AuthScreen(
             )
         }
 
-        InfoBanner(
-            title = "NO KEYS YET? LOOK AROUND FIRST",
-            accent = AccentBlue,
-            text = "Open the Live tab and press TRY SAMPLE DATA to see how quotes look, no login " +
-                "needed. Live, Download and Options need a Kite Connect login to show real data."
-        )
-
-        InfoBanner(
-            title = "HOW TO GET YOUR KEYS",
-            accent = AccentBlue,
-            text = "Kite: sign in at developers.kite.trade, create an app, then copy its API key " +
-                "and secret here. Set the app's redirect URL to http://127.0.0.1. " +
-                "Claude (optional): console.anthropic.com, API keys. " +
-                "Gemini (optional): aistudio.google.com, Get API key. " +
-                "Keys stay on your phone, encrypted."
-        )
+        val uriHandler = LocalUriHandler.current
+        OutlinedButton(
+            onClick = { runCatching { uriHandler.openUri(KEY_GUIDE_URL) } },
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
+        ) {
+            Icon(Icons.Default.HelpOutline, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("HOW TO GET YOUR KEYS (STEP BY STEP)")
+        }
 
         Spacer(Modifier.height(8.dp))
 
@@ -103,7 +100,7 @@ fun AuthScreen(
         }
 
         // Kite API Section
-        SectionHeader("KITE CONNECT")
+        SectionHeader("KITE CONNECT (needed for Live, Download, Options and Scan)")
 
         AppTextField(
             label = "API Key",
@@ -169,7 +166,7 @@ fun AuthScreen(
         Spacer(Modifier.height(8.dp))
 
         // AI APIs Section
-        SectionHeader("AI AGENT KEYS")
+        SectionHeader("AI AGENT KEYS (optional, only for the AI tab)")
 
         AppTextField(
             label = "Claude API Key (Anthropic)",

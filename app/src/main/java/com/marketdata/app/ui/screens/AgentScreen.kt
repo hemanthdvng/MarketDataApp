@@ -23,6 +23,7 @@ import com.marketdata.app.data.models.AiModels
 import com.marketdata.app.data.models.AiProvider
 import com.marketdata.app.data.models.ThinkingLevel
 import com.marketdata.app.ui.components.InfoBanner
+import com.marketdata.app.ui.components.ErrorBanner
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AgentViewModel
 import com.marketdata.app.viewmodel.OptionChainViewModel
@@ -285,12 +286,7 @@ fun AgentScreen(viewModel: AgentViewModel, optionChainViewModel: OptionChainView
         }
 
         state.error?.let {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(16.dp, 0.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000))
-            ) {
-                Text(it, color = AccentRed, modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
-            }
+            ErrorBanner(text = it, title = "THE AI COULD NOT ANSWER", modifier = Modifier.padding(16.dp, 0.dp))
         }
 
         // Pending attachment preview
