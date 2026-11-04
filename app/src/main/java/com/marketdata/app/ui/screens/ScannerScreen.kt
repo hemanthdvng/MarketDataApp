@@ -29,6 +29,7 @@ import androidx.core.content.ContextCompat
 import com.marketdata.app.data.models.SelectionType
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.service.PatternScanService
+import com.marketdata.app.ui.components.ErrorBanner
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.util.Direction
 import com.marketdata.app.util.NiftySymbols
@@ -225,11 +226,7 @@ fun ScannerScreen(viewModel: ScannerViewModel) {
         if (state.isScanning && state.progressText.isNotEmpty()) {
             Text(state.progressText, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
         }
-        state.error?.let {
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0000)), modifier = Modifier.fillMaxWidth()) {
-                Text(it, color = AccentRed, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        state.error?.let { ErrorBanner(text = it, title = "COULD NOT RUN SCAN") }
 
         // ---- Results ----
         if (state.lastScanLabel.isNotEmpty() && !state.isScanning) {

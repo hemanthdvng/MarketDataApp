@@ -11,6 +11,8 @@ import com.marketdata.app.data.models.SelectionType
 import com.marketdata.app.data.repository.KiteRepository
 import com.marketdata.app.util.CsvReader
 import com.marketdata.app.util.Direction
+import com.marketdata.app.util.FriendlyError
+import com.marketdata.app.util.FriendlyException
 import com.marketdata.app.util.NiftySymbols
 import com.marketdata.app.util.PatternEngine
 import com.marketdata.app.util.PatternResult
@@ -118,11 +120,16 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope.launch {
                 update { copy(isLoadingAllNseSymbols = true) }
                 try {
-                    if (repo.instrumentsNeedRefresh()) repo.refreshInstruments()
+                    if (repo.instrumentsNeedRefresh()) {
+                        repo.refreshInstruments().onFailure { e ->
+                            update { copy(isLoadingAllNseSymbols = false, error = FriendlyError.kite(e)) }
+                            return@launch
+                        }
+                    }
                     val syms = repo.getAllNseEquitySymbols()
                     update { copy(allNseSymbols = syms, isLoadingAllNseSymbols = false) }
                 } catch (e: Exception) {
-                    update { copy(isLoadingAllNseSymbols = false, error = "Failed to load instrument list: ${e.message}") }
+                    update { copy(isLoadingAllNseSymbols = false, error = FriendlyError.kite(e)) }
                 }
             }
         }
@@ -181,7 +188,7 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
                     update {
                         copy(
                             isScanning = false,
-                            error = "No data to scan. Pick a downloaded file, or check your symbol selection."
+                            error = "There is nothing to scan yet. Choose a downloaded file on the Data tab, or pick which stocks to scan."
                         )
                     }
                     return@launch
@@ -200,7 +207,7 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
                     update {
                         copy(
                             isScanning = false,
-                            error = "No symbols passed the volume filter. Loosen it in the DATA SOURCE section."
+                            error = "No stocks passed your volume filter. Lower the volume filter in the DATA SOURCE section and scan again."
                         )
                     }
                     return@launch
@@ -239,7 +246,7 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             } catch (e: Exception) {
-                update { copy(isScanning = false, error = "Scan failed: ${e.message}") }
+                update { copy(isScanning = false, error = FriendlyError.orElse(e, "The scan could not finish. Please try again, or choose a different data source.")) }
             }
         }
     }
@@ -253,6 +260,7 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadLive(s: ScannerState): Map<String, List<KiteCandle>> {
         val symbols = getLiveSymbols()
         if (symbols.isEmpty()) return emptyMap()
+        FriendlyError.kiteLoginProblem(getApplication())?.let { throw FriendlyException(it) }
         val intervalEntry = NiftySymbols.INTERVALS[s.selectedInterval]
         val intervalKey = intervalEntry.second
 
@@ -261,18 +269,26 @@ class ScannerViewModel(app: Application) : AndroidViewModel(app) {
 
         var tokenMap = repo.getTokensForSymbols(symbols)
         if (tokenMap.isEmpty()) {
-            repo.refreshInstruments()
+            repo.refreshInstruments().onFailure { throw it }
             tokenMap = repo.getTokensForSymbols(symbols)
         }
 
         val result = LinkedHashMap<String, List<KiteCandle>>()
+        var firstFailure: Throwable? = null
         var done = 0
         for ((sym, token) in tokenMap) {
             done++
             update { copy(progressText = "Downloading $sym ($done/${tokenMap.size})...") }
             repo.fetchHistorical(token, intervalKey, fromDate, toDate, includeOI = false)
                 .onSuccess { candles -> if (candles.isNotEmpty()) result[sym] = candles }
+                .onFailure { e ->
+                    if (firstFailure == null) firstFailure = e
+                    // Login / plan / rate-limit problems repeat for every symbol.
+                    if (FriendlyError.isFatalForBulk(e.message)) throw e
+                }
         }
+        // Nothing came back and there was a reason: tell the user the reason.
+        if (result.isEmpty() && firstFailure != null) throw firstFailure!!
         return result
     }
 

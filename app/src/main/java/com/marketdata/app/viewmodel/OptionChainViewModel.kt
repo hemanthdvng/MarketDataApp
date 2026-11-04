@@ -1,5 +1,6 @@
 package com.marketdata.app.viewmodel
 
+import com.marketdata.app.util.FriendlyError
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -144,13 +145,17 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun loadExpiries() {
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            update { copy(error = msg, isLoading = false) }
+            return
+        }
         viewModelScope.launch {
             update { copy(isLoading = true, error = null) }
             try {
                 if (repo.derivativeInstrumentsNeedRefresh()) {
                     val refresh = repo.refreshDerivativeInstruments()
                     refresh.onFailure { e ->
-                        update { copy(isLoading = false, error = "Couldn't load option instrument list: ${e.message}") }
+                        update { copy(isLoading = false, error = FriendlyError.kite(e)) }
                         return@launch
                     }
                 }
@@ -159,7 +164,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                     update {
                         copy(
                             isLoading = false,
-                            error = "No option contracts found for ${_state.value.underlying}. Check the symbol, or that it has listed F&O contracts."
+                            error = "No option contracts were found for ${_state.value.underlying}. Check the spelling, or pick a stock or index that has options."
                         )
                     }
                     return@launch
@@ -167,7 +172,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 update { copy(isLoading = false, expiries = expiries, selectedExpiry = expiries.first()) }
                 loadChainOnce()
             } catch (e: Exception) {
-                update { copy(isLoading = false, error = "Failed to load expiries: ${e.message}") }
+                update { copy(isLoading = false, error = FriendlyError.kite(e)) }
             }
         }
     }
@@ -202,6 +207,11 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadChainOnce() {
         val s = _state.value
         if (s.selectedExpiry.isBlank()) return
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            stopPolling()
+            update { copy(isLoading = false, error = msg, autoRefreshEnabled = false) }
+            return
+        }
         update { copy(isLoading = true, error = null) }
         try {
             if (strikesCache.isEmpty()) {
@@ -217,16 +227,22 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 symbolsCache = strikesCache.associateWith { (ces[it] ?: "") to (pes[it] ?: "") }
             }
             if (strikesCache.isEmpty()) {
-                update { copy(isLoading = false, error = "No strikes found for this expiry") }
+                update { copy(isLoading = false, error = "No strikes were found for this expiry. Pick a different expiry date.") }
                 return
             }
 
             val spotSymbol = OPTION_CHAIN_SPOT_SYMBOL[s.underlying] ?: s.underlying
             val spotResult = repo.fetchQuotesRaw(listOf("NSE:$spotSymbol"))
+            spotResult.onFailure { e ->
+                if (s.spotPrice <= 0.0) {
+                    update { copy(isLoading = false, error = FriendlyError.kite(e)) }
+                    return
+                }
+            }
             val fetchedSpot = spotResult.getOrNull()?.values?.firstOrNull()?.last_price ?: 0.0
             val effectiveSpot = if (fetchedSpot > 0.0) fetchedSpot else s.spotPrice
             if (effectiveSpot <= 0.0) {
-                update { copy(isLoading = false, error = "Couldn't get spot price for ${s.underlying} (tried NSE:$spotSymbol)") }
+                update { copy(isLoading = false, error = "Could not get the current price of ${s.underlying}. Try again in a moment.") }
                 return
             }
 
@@ -243,12 +259,12 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 if (pair.second.isNotBlank()) instrumentIds.add("NFO:${pair.second}")
             }
             if (instrumentIds.isEmpty()) {
-                update { copy(isLoading = false, error = "No tradable strikes in range") }
+                update { copy(isLoading = false, error = "No tradable strikes near the current price. Try a different expiry.") }
                 return
             }
 
             val quotes = repo.fetchQuotesRaw(instrumentIds).getOrElse { e ->
-                update { copy(isLoading = false, error = "Quote fetch failed: ${e.message}") }
+                update { copy(isLoading = false, error = FriendlyError.kite(e)) }
                 return
             }
 
@@ -284,7 +300,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         } catch (e: Exception) {
-            update { copy(isLoading = false, error = "Load failed: ${e.message}") }
+            update { copy(isLoading = false, error = FriendlyError.orElse(e, "Could not load the option chain. Please try again.")) }
         }
     }
 
@@ -325,7 +341,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 update { copy(isExporting = false, exportMessage = "Saved $fileName ($rows strikes)") }
             } catch (e: Exception) {
-                update { copy(isExporting = false, exportError = "Export failed: ${e.message}") }
+                update { copy(isExporting = false, exportError = FriendlyError.orElse(e, "Could not save the option chain file. Check that your save folder exists and the phone has free space.")) }
             }
         }
     }
@@ -418,7 +434,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 val written = CsvWriter.writeOptionChainToUri(getApplication(), docUri, s.underlying, s.selectedExpiry, spot, allRows)
                 update { copy(isExporting = false, exportMessage = "Saved $fileName ($written strikes, full chain)") }
             } catch (e: Exception) {
-                update { copy(isExporting = false, exportError = "Download failed: ${e.message}") }
+                update { copy(isExporting = false, exportError = FriendlyError.orElse(e, "Could not download the option chain. Check your internet and your save folder, then try again.")) }
             }
         }
     }
@@ -443,7 +459,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 update { copy(isLoadingBulkExpiries = false, bulkExpiryOptions = reference, selectedBulkExpiry = reference.firstOrNull() ?: "") }
             } catch (e: Exception) {
-                update { copy(isLoadingBulkExpiries = false, exportError = "Failed to load expiries: ${e.message}") }
+                update { copy(isLoadingBulkExpiries = false, exportError = FriendlyError.orElse(e, "Could not load the expiry dates. Please try again.")) }
             }
         }
     }
@@ -534,7 +550,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                     (if (skipped > 0) " \u2022 $skipped symbol(s) skipped (no matching expiry/data)" else "")
                 update { copy(isBulkDownloading = false, bulkProgressText = "", exportMessage = summary) }
             } catch (e: Exception) {
-                update { copy(isBulkDownloading = false, exportError = "Bulk download failed: ${e.message}") }
+                update { copy(isBulkDownloading = false, exportError = FriendlyError.orElse(e, "The bulk download did not finish. Please try again.")) }
             }
         }
     }

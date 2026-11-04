@@ -8,6 +8,8 @@ import com.marketdata.app.data.db.InstrumentEntity
 import com.marketdata.app.data.models.*
 import com.marketdata.app.data.prefs.SecurePrefs
 import com.marketdata.app.util.Extensions
+import com.marketdata.app.util.FriendlyError
+import com.marketdata.app.util.FriendlyException
 import com.marketdata.app.util.NiftySymbols
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -24,6 +26,13 @@ class KiteRepository(private val context: Context) {
 
     private fun authHeader(): String =
         "token ${prefs.apiKey}:${prefs.accessToken}"
+
+    /** Wraps any failure as a message the user can act on. */
+    private fun friendly(e: Throwable) = FriendlyException(FriendlyError.kite(e), e)
+
+    /** A ready failure if there is no saved Kite login, else null. */
+    private fun loginGuard(): Exception? =
+        FriendlyError.kiteLoginProblem(context)?.let { FriendlyException(it) }
 
     // ---- Auth ----
 
@@ -53,6 +62,7 @@ class KiteRepository(private val context: Context) {
     // ---- Instruments ----
 
     suspend fun refreshInstruments(): Result<Int> = withContext(Dispatchers.IO) {
+        loginGuard()?.let { return@withContext Result.failure(it) }
         try {
             val csv = downloadInstrumentsCsv("NSE")
                 ?: return@withContext Result.failure(Exception("Empty instruments response"))
@@ -64,7 +74,7 @@ class KiteRepository(private val context: Context) {
             prefs.instrumentsLastUpdated = System.currentTimeMillis()
             Result.success(entities.size)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(friendly(e))
         }
     }
 
@@ -73,6 +83,7 @@ class KiteRepository(private val context: Context) {
      *  x CE/PE is its own row) and is what the Option Chain screen queries
      *  against - refreshInstruments() alone only ever covered cash equities. */
     suspend fun refreshDerivativeInstruments(): Result<Int> = withContext(Dispatchers.IO) {
+        loginGuard()?.let { return@withContext Result.failure(it) }
         try {
             val csv = downloadInstrumentsCsv("NFO")
                 ?: return@withContext Result.failure(Exception("Empty instruments response"))
@@ -84,7 +95,7 @@ class KiteRepository(private val context: Context) {
             prefs.derivativeInstrumentsLastUpdated = System.currentTimeMillis()
             Result.success(entities.size)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(friendly(e))
         }
     }
 
@@ -183,7 +194,14 @@ class KiteRepository(private val context: Context) {
     /** Every plain NSE-listed equity/ETF (not just Nifty 50/100) - the full
      *  cash-market universe, for "All Instruments" download/scan/quote
      *  options. Requires refreshInstruments() to have run at least once. */
-    suspend fun getAllNseEquitySymbols(): List<String> = db.instrumentDao().getAllNseEquitySymbols()
+    suspend fun getAllNseEquitySymbols(): List<String> =
+        db.instrumentDao().getAllNseEquitySymbols().filter { isPlainEquitySymbol(it) }
+
+    /** NSE's cash segment also lists bonds, debentures and government securities
+     *  (symbols such as 0ABCL31-N0, 710GS2036 or SGBFEB32IV-GB). They have no use
+     *  in a stock list and clutter "all instruments", so they are left out. */
+    private val debtSymbol = Regex("""(-[A-Z]{1,2}\d{1,2}$)|(-(GB|GS|TB|SG)$)|(^\d+GS\d+)""")
+    private fun isPlainEquitySymbol(symbol: String) = !debtSymbol.containsMatchIn(symbol)
 
     suspend fun getExpiriesForUnderlying(underlying: String): List<String> =
         db.instrumentDao().getExpiriesForUnderlying(underlying.uppercase())
@@ -202,15 +220,16 @@ class KiteRepository(private val context: Context) {
      *  and returns the raw QuoteData (has bid/ask depth, OI) instead of the
      *  simplified LiveQuoteDisplay used elsewhere. */
     suspend fun fetchQuotesRaw(instruments: List<String>): Result<Map<String, QuoteData>> = try {
+        loginGuard()?.let { throw it }
         val response = api.getQuote(auth = authHeader(), instruments = instruments)
         if (response.isSuccessful && response.body()?.status == "success") {
             Result.success(response.body()!!.data ?: emptyMap())
         } else {
             val errBody = response.errorBody()?.string()?.take(300) ?: response.message()
-            Result.failure(Exception("Quote fetch failed: HTTP ${response.code()} $errBody"))
+            Result.failure(friendly(Exception("HTTP ${response.code()} $errBody")))
         }
     } catch (e: Exception) {
-        Result.failure(e)
+        Result.failure(friendly(e))
     }
 
     // ---- Historical Data ----
@@ -227,6 +246,7 @@ class KiteRepository(private val context: Context) {
         includeOI: Boolean,
         onProgress: suspend (Int, Int) -> Unit = { _, _ -> }
     ): Result<List<KiteCandle>> = try {
+        loginGuard()?.let { throw it }
         val isWeekly = intervalKey == "week"
         val actualInterval = if (isWeekly) "day" else intervalKey
 
@@ -245,7 +265,11 @@ class KiteRepository(private val context: Context) {
                 oi = if (includeOI) 1 else 0
             )
 
-            if (response.isSuccessful) {
+            if (!response.isSuccessful) {
+                val errBody = response.errorBody()?.string()?.take(300) ?: response.message()
+                throw friendly(Exception("HTTP ${response.code()} $errBody"))
+            }
+            run {
                 val candles = response.body()?.data?.candles ?: emptyList()
                 for (row in candles) {
                     if (row.size < 6) continue
@@ -269,12 +293,13 @@ class KiteRepository(private val context: Context) {
         val finalCandles = if (isWeekly) Extensions.aggregateToWeekly(allCandles) else allCandles
         Result.success(finalCandles)
     } catch (e: Exception) {
-        Result.failure(e)
+        Result.failure(friendly(e))
     }
 
     // ---- Live Quotes ----
 
     suspend fun fetchQuotes(symbols: List<String>): Result<List<LiveQuoteDisplay>> = try {
+        loginGuard()?.let { throw it }
         // Map symbols to NSE:SYMBOL format
         val instruments = symbols.map { "NSE:${it.uppercase()}" }
         val response = api.getQuote(auth = authHeader(), instruments = instruments)
@@ -302,10 +327,10 @@ class KiteRepository(private val context: Context) {
             Result.success(quotes)
         } else {
             val errBody = response.errorBody()?.string()?.take(300) ?: response.message()
-            Result.failure(Exception("Quote fetch failed: HTTP ${response.code()} $errBody"))
+            Result.failure(friendly(Exception("HTTP ${response.code()} $errBody")))
         }
     } catch (e: Exception) {
-        Result.failure(e)
+        Result.failure(friendly(e))
     }
 
     /** Kite's quote endpoint has an undocumented-but-real cap on instruments
@@ -319,19 +344,29 @@ class KiteRepository(private val context: Context) {
         batchSize: Int = 400,
         onProgress: suspend (Int, Int) -> Unit = { _, _ -> }
     ): Result<List<LiveQuoteDisplay>> = try {
+        loginGuard()?.let { throw it }
         val all = mutableListOf<LiveQuoteDisplay>()
+        var firstFailure: Throwable? = null
         val chunks = symbols.chunked(batchSize)
         for ((i, chunk) in chunks.withIndex()) {
-            fetchQuotes(chunk).onSuccess { all.addAll(it) }
+            val r = fetchQuotes(chunk)
+            r.onSuccess { all.addAll(it) }
+            r.onFailure { e ->
+                if (firstFailure == null) firstFailure = e
+                // Login / plan / rate-limit problems repeat on every batch: stop now.
+                if (FriendlyError.isFatalForBulk(e.message)) return Result.failure(e)
+            }
             onProgress(i + 1, chunks.size)
             if (i < chunks.lastIndex) delay(350)
         }
-        Result.success(all)
+        // If nothing at all came back, report why instead of an empty success.
+        if (all.isEmpty() && firstFailure != null) Result.failure(firstFailure!!) else Result.success(all)
     } catch (e: Exception) {
-        Result.failure(e)
+        Result.failure(friendly(e))
     }
 
     suspend fun fetchIndexQuotes(indexNames: List<String>): Result<List<LiveQuoteDisplay>> = try {
+        loginGuard()?.let { throw it }
         val instruments = indexNames.map { "NSE:${it}" }
         val response = api.getQuote(auth = authHeader(), instruments = instruments)
 
@@ -352,10 +387,11 @@ class KiteRepository(private val context: Context) {
             }
             Result.success(quotes)
         } else {
-            Result.failure(Exception("Failed to fetch index quotes"))
+            val errBody = response.errorBody()?.string()?.take(300) ?: response.message()
+            Result.failure(friendly(Exception("HTTP ${response.code()} $errBody")))
         }
     } catch (e: Exception) {
-        Result.failure(e)
+        Result.failure(friendly(e))
     }
 
     fun instrumentsNeedRefresh(): Boolean {
