@@ -13,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import com.marketdata.app.data.repository.KiteRepository
 import com.marketdata.app.ui.components.InfoBanner
 import androidx.compose.ui.text.input.KeyboardType
@@ -22,9 +21,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.marketdata.app.ui.theme.*
 import com.marketdata.app.viewmodel.AuthViewModel
-
-/** Step-by-step guide for getting the Kite, Claude and Gemini keys (edit docs/GETTING_STARTED.md to change it, no app update needed). */
-private const val KEY_GUIDE_URL = "https://github.com/hemanthdvng/MarketDataApp/blob/main/docs/GETTING_STARTED.md"
 
 @Composable
 fun AuthScreen(
@@ -67,9 +63,9 @@ fun AuthScreen(
             )
         }
 
-        val uriHandler = LocalUriHandler.current
+        var showGuide by remember { mutableStateOf(false) }
         OutlinedButton(
-            onClick = { runCatching { uriHandler.openUri(KEY_GUIDE_URL) } },
+            onClick = { showGuide = true },
             modifier = Modifier.fillMaxWidth().height(48.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
         ) {
@@ -77,6 +73,8 @@ fun AuthScreen(
             Spacer(Modifier.width(8.dp))
             Text("HOW TO GET YOUR KEYS (STEP BY STEP)")
         }
+
+        if (showGuide) KeyGuideDialog(onDismiss = { showGuide = false })
 
         Spacer(Modifier.height(8.dp))
 
@@ -296,4 +294,54 @@ fun AppTextField(
             unfocusedLabelColor = TextSecondary
         )
     )
+}
+
+@Composable
+private fun KeyGuideDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkCard,
+        title = { Text("How to get your keys", color = AccentBlue) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GuideBlock(
+                    "1. Kite Connect (for market data)",
+                    "Sign in at developers.kite.trade with your Zerodha account and create an app. " +
+                        "Set its Redirect URL to exactly http://127.0.0.1\n" +
+                        "Copy the app's API key and API secret into the two boxes below, then tap " +
+                        "LOGIN WITH KITE and sign in. Kite logins last one day; tap REFRESH TOKEN when " +
+                        "it expires. Live prices and historical data need Zerodha's paid Kite Connect " +
+                        "plan. The free Personal plan logs in but has no market data."
+                )
+                GuideBlock(
+                    "2. Claude key (optional, AI tab)",
+                    "Go to console.anthropic.com, add a little credit under Billing, open API keys, " +
+                        "create a key and paste it under AI AGENT KEYS. It starts with sk-ant-"
+                )
+                GuideBlock(
+                    "3. Gemini key (optional, AI tab)",
+                    "Go to aistudio.google.com, choose Get API key, create a key and paste it under " +
+                        "AI AGENT KEYS. It starts with AIza. You only need one AI key."
+                )
+                GuideBlock(
+                    "Good to know",
+                    "Your keys stay on this phone, stored encrypted. Never share your API secret with " +
+                        "anyone. Live prices update Mon to Fri, 9:15 AM to 3:30 PM IST. Files save to " +
+                        "Download/MarketData by default."
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("CLOSE", color = AccentBlue) } }
+    )
+}
+
+@Composable
+private fun GuideBlock(title: String, body: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, color = TextPrimary, style = MaterialTheme.typography.labelLarge)
+        Text(body, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+    }
 }
