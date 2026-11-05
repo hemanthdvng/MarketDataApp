@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.Calendar
 import java.util.Date
 
 class KiteRepository(private val context: Context) {
@@ -230,6 +231,41 @@ class KiteRepository(private val context: Context) {
         }
     } catch (e: Exception) {
         Result.failure(friendly(e))
+    }
+
+    /** What the saved Kite login can actually do. Free "Personal" API keys log in fine
+     *  but are refused market data, so we test once with a single cheap quote request. */
+    enum class DataAccess { OK, NO_PLAN, NO_HISTORICAL, SESSION_EXPIRED, UNKNOWN }
+
+    suspend fun checkDataAccess(): DataAccess = withContext(Dispatchers.IO) {
+        if (loginGuard() != null) return@withContext DataAccess.SESSION_EXPIRED
+        try {
+            val r = api.getQuote(auth = authHeader(), instruments = listOf("NSE:INFY"))
+            if (r.isSuccessful && r.body()?.status == "success") {
+                // Live prices work. Historical candles are a separate permission, so test it too
+                // (INFY's instrument token is 408065; a few days of daily candles is enough).
+                val to = Date()
+                val from = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -5) }.time
+                val h = fetchHistorical(408065L, "day", from, to, includeOI = false)
+                val msg = h.exceptionOrNull()?.message.orEmpty()
+                when {
+                    h.isSuccess -> DataAccess.OK
+                    msg.startsWith("Your Kite plan does not include") -> DataAccess.NO_HISTORICAL
+                    msg.startsWith("Your Kite login has expired") -> DataAccess.SESSION_EXPIRED
+                    else -> DataAccess.OK // cannot tell (e.g. a hiccup); real errors show where they happen
+                }
+            } else {
+                val body = (r.errorBody()?.string() ?: "").lowercase()
+                when {
+                    body.contains("tokenexception") || r.code() == 401 -> DataAccess.SESSION_EXPIRED
+                    r.code() == 403 || body.contains("permissionexception") ||
+                        body.contains("insufficient permission") -> DataAccess.NO_PLAN
+                    else -> DataAccess.UNKNOWN
+                }
+            }
+        } catch (e: Exception) {
+            DataAccess.UNKNOWN
+        }
     }
 
     // ---- Historical Data ----

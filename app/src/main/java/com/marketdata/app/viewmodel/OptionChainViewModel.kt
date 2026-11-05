@@ -366,7 +366,9 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
 
         val spotSymbol = OPTION_CHAIN_SPOT_SYMBOL[underlying] ?: underlying
         val spotResult = repo.fetchQuotesRaw(listOf("NSE:$spotSymbol"))
-        val spot = spotResult.getOrNull()?.values?.firstOrNull()?.last_price ?: fallbackSpot
+        // A failed price request (no login, free plan, expired session) must stop the
+        // download, otherwise the file fills up with zero prices and looks successful.
+        val spot = spotResult.getOrElse { throw it }.values.firstOrNull()?.last_price ?: fallbackSpot
         val atmStrike = strikes.minByOrNull { abs(it - spot) } ?: strikes.first()
 
         val allRows = mutableListOf<OptionChainRow>()
@@ -378,7 +380,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 if (pe.isNotBlank()) ids.add("NFO:$pe")
             }
             if (ids.isEmpty()) continue
-            val quotes = repo.fetchQuotesRaw(ids).getOrElse { emptyMap() }
+            val quotes = repo.fetchQuotesRaw(ids).getOrElse { throw it }
             for (strike in batch) {
                 val (ce, pe) = symbolsByStrike[strike] ?: ("" to "")
                 val ceQ = quotes["NFO:$ce"]
@@ -411,6 +413,10 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
      *  not just the on-screen +/- window around ATM). Used by the Download tab. */
     fun downloadFullChain(folderUri: Uri) {
         val s = _state.value
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            update { copy(exportError = msg) }
+            return
+        }
         if (s.selectedExpiry.isBlank()) {
             update { copy(exportError = "Pick an underlying + expiry on the Options tab first") }
             return
@@ -446,10 +452,19 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
     fun setBulkMode(mode: OcBulkMode) {
         update { copy(bulkMode = mode, bulkExpiryOptions = emptyList(), selectedBulkExpiry = "") }
         if (mode == OcBulkMode.SINGLE) return
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            update { copy(exportError = msg) }
+            return
+        }
         viewModelScope.launch {
             update { copy(isLoadingBulkExpiries = true) }
             try {
-                if (repo.derivativeInstrumentsNeedRefresh()) repo.refreshDerivativeInstruments()
+                if (repo.derivativeInstrumentsNeedRefresh()) {
+                    repo.refreshDerivativeInstruments().onFailure { e ->
+                        update { copy(isLoadingBulkExpiries = false, exportError = FriendlyError.kite(e)) }
+                        return@launch
+                    }
+                }
                 val symbols = bulkModeSymbols(mode)
                 // NIFTY's own expiry list is the most complete/frequent (weekly) and a
                 // good universal picker - individual stocks/other indices resolve to
@@ -487,6 +502,10 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
     fun downloadBulkChain(folderUri: Uri) {
         val s = _state.value
         if (s.bulkMode == OcBulkMode.SINGLE) return
+        FriendlyError.kiteLoginProblem(getApplication())?.let { msg ->
+            update { copy(exportError = msg) }
+            return
+        }
         if (s.selectedBulkExpiry.isBlank()) {
             update { copy(exportError = "Pick an expiry date first") }
             return
@@ -504,6 +523,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 val entries = mutableListOf<Pair<Triple<String, String, Double>, List<OptionChainRow>>>()
                 var done = 0
                 var skipped = 0
+                var firstError: Throwable? = null
                 for (sym in symbols) {
                     update { copy(bulkProgressText = "Fetching $sym ($done/${symbols.size})...") }
                     try {
@@ -522,6 +542,9 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                             skipped++
                         }
                     } catch (e: Exception) {
+                        // Login / plan / rate-limit problems hit every symbol: stop and say why.
+                        if (FriendlyError.isFatalForBulk(e.message)) throw e
+                        if (firstError == null) firstError = e
                         skipped++
                     }
                     done++
@@ -529,7 +552,13 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 if (entries.isEmpty()) {
-                    update { copy(isBulkDownloading = false, exportError = "No option chain data found for any symbol in this set") }
+                    update {
+                        copy(
+                            isBulkDownloading = false, bulkProgressText = "",
+                            exportError = firstError?.let { FriendlyError.orElse(it, "No option chain data came back for this set. Try a different expiry date.") }
+                                ?: "No option chain data came back for this set. Try a different expiry date."
+                        )
+                    }
                     return@launch
                 }
 
@@ -550,7 +579,7 @@ class OptionChainViewModel(app: Application) : AndroidViewModel(app) {
                     (if (skipped > 0) " \u2022 $skipped symbol(s) skipped (no matching expiry/data)" else "")
                 update { copy(isBulkDownloading = false, bulkProgressText = "", exportMessage = summary) }
             } catch (e: Exception) {
-                update { copy(isBulkDownloading = false, exportError = FriendlyError.orElse(e, "The bulk download did not finish. Please try again.")) }
+                update { copy(isBulkDownloading = false, bulkProgressText = "", exportError = FriendlyError.orElse(e, "The bulk download did not finish. Please try again.")) }
             }
         }
     }

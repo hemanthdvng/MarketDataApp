@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import com.marketdata.app.data.repository.KiteRepository
+import com.marketdata.app.ui.components.InfoBanner
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -96,6 +98,48 @@ fun AuthScreen(
                         Text("Logout", color = AccentRed)
                     }
                 }
+            }
+        }
+
+        if (state.isLoggedIn) {
+            when {
+                state.isCheckingAccess ->
+                    InfoBanner(text = "Checking what your Kite plan allows...", accent = AccentBlue)
+                state.dataAccess == KiteRepository.DataAccess.OK ->
+                    InfoBanner(
+                        title = "MARKET DATA AVAILABLE",
+                        text = "Your Kite plan can read market data, so Live, Data and Options should work.",
+                        accent = AccentGreen
+                    )
+                state.dataAccess == KiteRepository.DataAccess.NO_PLAN ->
+                    InfoBanner(
+                        title = "FREE KITE PLAN: NO MARKET DATA",
+                        text = "You are logged in, but Zerodha's free Personal API does not include market " +
+                            "data. Live, Data and Options will show an error until you move to the paid " +
+                            "Kite Connect plan (about Rs 500 per month). Login, Files and the AI tab " +
+                            "still work, and Scan works on files you already have."
+                    )
+                state.dataAccess == KiteRepository.DataAccess.NO_HISTORICAL ->
+                    InfoBanner(
+                        title = "NO HISTORICAL DATA ON YOUR PLAN",
+                        text = "Live prices work, but your Kite plan does not include historical data, " +
+                            "so the Data tab and live scans will show an error until you move to the " +
+                            "paid Kite Connect plan."
+                    )
+                state.dataAccess == KiteRepository.DataAccess.SESSION_EXPIRED ->
+                    InfoBanner(
+                        title = "LOGIN EXPIRED",
+                        text = "Your Kite login has expired (it lasts one day). Tap REFRESH TOKEN below.",
+                        accent = AccentRed
+                    )
+                state.dataAccess == KiteRepository.DataAccess.UNKNOWN ->
+                    InfoBanner(
+                        text = "Could not check your Kite plan right now. Check your internet and tap " +
+                            "CHECK MY PLAN to try again."
+                    )
+            }
+            TextButton(onClick = { viewModel.checkDataAccess() }, enabled = !state.isCheckingAccess) {
+                Text("CHECK MY PLAN AGAIN", color = AccentBlue)
             }
         }
 
