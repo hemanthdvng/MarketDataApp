@@ -18,7 +18,9 @@ data class AuthState(
     val isLoading: Boolean = false,
     val isRefreshingInstruments: Boolean = false,
     val error: String? = null,
-    val successMessage: String? = null
+    val successMessage: String? = null,
+    val dataAccess: KiteRepository.DataAccess? = null,
+    val isCheckingAccess: Boolean = false
 )
 
 class AuthViewModel(app: Application) : AndroidViewModel(app) {
@@ -34,6 +36,19 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         )
     )
     val state = _state.asStateFlow()
+
+    init {
+        if (prefs.isLoggedIn) checkDataAccess()
+    }
+
+    /** Tests whether this Kite login (free or paid plan) is allowed to read market data. */
+    fun checkDataAccess() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isCheckingAccess = true)
+            val result = repo.checkDataAccess()
+            _state.value = _state.value.copy(isCheckingAccess = false, dataAccess = result)
+        }
+    }
 
     fun updateApiKey(key: String) {
         _state.value = _state.value.copy(apiKey = key)
@@ -58,6 +73,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                         successMessage = "Logged in as ${session.user_name}. Loading instrument list..."
                     )
                     refreshInstruments()
+                    checkDataAccess()
                 },
                 onFailure = { e ->
                     _state.value = _state.value.copy(
